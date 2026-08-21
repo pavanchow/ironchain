@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: |
+          if [ -f Cargo.toml ]; then
+            rustup update stable
+            cargo build --verbose
+            cargo test --verbose
+          else
+            echo "No build configured yet; scaffolding only."
+          fi
