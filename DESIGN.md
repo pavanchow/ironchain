@@ -13,6 +13,7 @@ The engine is a set of small layers, each in its own module, built bottom up.
 5. `block`. Block headers, block hashing, and proof of work.
 6. `state`. The account world state and the block state transition.
 7. `chain`. Mempool, miner, difficulty retargeting, fork choice, reorg, and the full-chain validator.
+8. `spv`. Light-client inclusion proofs over single blocks.
 
 Nothing above the SHA-256 layer uses any other cryptographic primitive. There are no external crates anywhere.
 
@@ -59,6 +60,10 @@ Ironchain uses an account model, address to `(balance, nonce)`, rather than UTXO
 
 Applying a transaction checks four things in order. The signature must verify, the nonce must equal the account's current nonce, the balance must cover amount plus fee, and amount plus fee must not overflow. On success the sender loses amount plus fee and gains one nonce, and the receiver gains amount. Amounts are unsigned, so a negative balance cannot be represented, and the balance check forbids overspending.
 
+Applying a block first computes the fee total with checked arithmetic, then the subsidy plus that total, also checked. A block whose fees or reward would overflow `u64` is rejected outright rather than crashing or wrapping, because the fee total is computed before any transaction is validated and a panic there would let a crafted block crash a validating node.
+
+The node caches the world state of the current tip and updates it incrementally as blocks connect, which keeps block connection linear in chain length. Fork parents are validated by replaying from genesis, which is the rare path, and the cache invariant (tip state equals a full replay of the best chain) is asserted by the fork and soak tests on every reorganization.
+
 ## Block format and proof of work
 
 A block header is:
@@ -78,11 +83,27 @@ Transaction leaves are the domain-tagged hash of the full serialized transaction
 
 ## Difficulty retargeting
 
-Every `retarget_interval` blocks the difficulty is recomputed from the timestamps of the last interval of blocks. If the observed timespan is far shorter than expected the difficulty rises by one bit, if it is far longer it falls by one bit, and otherwise it holds. The change is clamped to a single bit per retarget and floored at one bit. Validation recomputes the expected difficulty for every block and rejects any block whose difficulty does not match, which is what makes the difficulty a tamper-evident field.
+Every `retarget_interval` blocks the difficulty is recomputed from the timestamps of the last interval of blocks. If the observed timespan is far shorter than expected the difficulty rises by one bit, if it is far longer it falls by one bit, and otherwise it holds. The change is clamped to a single bit per retarget, floored at one bit, and capped at 127 bits so cumulative work always fits in a `u128`. Validation recomputes the expected difficulty for every block and rejects any block whose difficulty does not match, which is what makes the difficulty a tamper-evident field.
+
+One detail carries the whole property: the two validators must measure the timespan over the same anchor block. The node measures from the block `interval - 1` links below the parent, which spans exactly `interval - 1` block gaps, the same span the expected time assumes. The full-chain validator anchors at index `i - interval` for the block at index `i`, which is the identical block. A one-block drift between these anchors is invisible while timestamps are uniform and silently splits consensus at retarget boundaries the moment they are not, so the retarget gate builds a chain whose timestamps put the decision boundary exactly between the two anchor choices and requires both validators to agree.
 
 ## Fork choice and reorg
 
 Every connected block is stored with its height and cumulative work. The active tip is the block with the greatest cumulative work. When a heavier branch appears, the tip switches to it, which is a reorganization. World state for any tip is produced by replaying the branch from genesis through that tip, so after a reorg the balances and nonces are exactly those of the winning branch and nothing from the discarded branch leaks through.
+
+## Light-client SPV proofs
+
+A light client stores no chain and replays no state. The `spv` module gives it the same inclusion guarantee as a full node for one block, at constant cost. A proof is a self-contained struct holding the block header, the full transaction, its index in the block, and the Merkle sibling hashes with their sides from the leaf to the root.
+
+Verification is two checks. The header must satisfy its own proof of work, meaning the double SHA-256 of the serialized header carries at least `difficulty_bits` leading zero bits. The domain-tagged hash of the full transaction bytes must fold through the sibling hashes to exactly the header's committed `merkle_root`. Both checks together mean a fraudulent inclusion claim requires either a SHA-256 preimage or re-mining the block, the same trust assumption as full validation.
+
+What a proof deliberately does not claim: that the difficulty level is the one the consensus rule requires, because checking that needs the whole header chain, and that the transaction was valid against the state, because that needs the world state. `verify_spv` checks work and inclusion. `verify_spv_full` additionally checks the transaction's own signature against its claimed sender, which a balance-tracking client can use to reject structurally invalid payments.
+
+Proofs serialize compactly: the 116-byte header, the transaction index, a count and list of 32-byte siblings each with a one-byte side flag, then the length-prefixed transaction bytes. Deserialization is strict and overflow-safe. The sibling count is capped at 64 so a hostile blob cannot force a large allocation, the side flag must be exactly 0 or 1, the transaction must parse canonically, and any truncation or trailing byte rejects the whole blob. A proof over a single-transaction block carries zero siblings, since a one-leaf root is the leaf itself, and the empty list round trips through the same serializer. The same strictness applies to the header, transaction, and signature deserializers the proof is built from.
+
+## Canonical serialization
+
+Headers, transactions, and signatures all have a strict `from_bytes` inverse of their serializer. The signature layout is the leaf index (4 bytes), the authentication path length (1 byte, at most 64), all 256 revealed secrets, all 256 complements, and the authentication path hashes. Parsers slice by length first and reject truncation, trailing bytes, and non-canonical fields, so malformed input can never produce a struct with a shape the validators do not expect.
 
 ## Why each gate proves what it claims
 
@@ -93,3 +114,13 @@ Gate two shows the signatures are both correct and strict. Random messages sign 
 Gate three shows the Merkle proofs are sound in both directions. An included leaf verifies and a random non-included leaf fails, across sizes that include one and several non-power-of-two values, which exercises the odd-level duplication path.
 
 Gate four shows fork choice is deterministic and that state is recomputed correctly. Two branches are built, the heavier one is selected, and the resulting state is compared against an independent full-chain revalidation of the winning branch. Equality of those two states is the proof that a reorg rewrites balances to the winning history rather than mixing branches.
+
+Gate five shows the two validators are one rule, not two. A chain is mined through the node at retarget boundaries chosen so the keep-or-raise decision sits exactly between the two possible anchor blocks, then the full validator must accept the node's own chain and reproduce its state. Companion tests confirm fast chains raise a bit and slow chains lower one, and that both validators agree in each direction.
+
+Gate six shows signatures are not malleable. Every flip of every first byte of every reveal and complement, the whole authentication path, wrong leaf indices, and truncated paths must all fail verification. Lamport verification has no algebraic slack, so a mutated signature either changes a revealed hash and rebuilds a different leaf key, or changes the Merkle fold and misses the address.
+
+The adversarial suite pins each remaining validator rule in isolation, with a hand-built chain per rule so no other check can mask the one under test, and a set of boundary acceptances (exact-balance spend, zero-value transaction, empty block, zero-subsidy block paying fees only, many-transaction block) so the validator is proven strict and not merely closed. The soak runs the same invariants over hundreds of blocks with forced reorganizations every few blocks.
+
+## How the block work and difficulty bounds stay sane
+
+Work for one block is `2^difficulty_bits` held in a `u128`, so the value saturates rather than shifts out of range for 128 or more bits, retargeting clamps difficulty to 1 through 127 bits, and a genesis configuration asking for more than 127 bits is clamped at creation. Mining asserts that a target above 256 bits is impossible instead of searching forever. These bounds turn what used to be panics or hangs on extreme inputs into defined behavior.
