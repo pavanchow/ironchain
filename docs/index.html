@@ -2,11 +2,853 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ironchain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ironchain — Proof-of-Work Blockchain Playground</title>
+<style>
+  :root{
+    --bg:#f5f5f7;
+    --text:#1d1d1f;
+    --muted:#6e6e73;
+    --card:#ffffff;
+    --card2:#fbfbfd;
+    --border:#d2d2d7;
+    --accent:#0071e3;
+    --accent-soft:#e8f1fe;
+    --good:#1a7f37;
+    --good-bg:#e7f6ec;
+    --good-border:#9ad3ab;
+    --bad:#c9252d;
+    --bad-bg:#fdecec;
+    --bad-border:#f0a9ac;
+    --chip:#f0f0f3;
+    --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{text-align:center;padding:36px 0 20px}
+  header.hero h1{font-size:44px;line-height:1.05;margin:0 0 10px;font-weight:700;letter-spacing:-.02em}
+  header.hero .sub{color:var(--muted);font-size:19px;max-width:680px;margin:0 auto}
+  header.hero .repo{margin-top:16px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .pill{display:inline-block;background:var(--chip);border:1px solid var(--border);border-radius:999px;padding:5px 13px;font-size:13px;color:var(--muted);margin:4px 4px 0}
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:22px;
+    box-shadow:var(--shadow);
+    margin:18px 0;
+  }
+  .card h2{margin:0 0 6px;font-size:22px;font-weight:650;letter-spacing:-.01em}
+  .card h3{margin:0 0 10px;font-size:16px;font-weight:600}
+  .card .desc{color:var(--muted);font-size:14px;margin:0 0 16px}
+  .grid{display:grid;gap:18px}
+  @media(min-width:860px){.grid.cols2{grid-template-columns:1fr 1fr}.grid.cols3{grid-template-columns:1.1fr 1fr 1fr}}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .spacer{flex:1}
+  button{
+    font:inherit;font-weight:550;
+    background:var(--accent);color:#fff;border:none;border-radius:12px;
+    padding:10px 18px;cursor:pointer;transition:transform .12s ease,opacity .12s ease,background .12s;
+  }
+  button:hover{opacity:.92}
+  button:active{transform:scale(.97)}
+  button.secondary{background:var(--chip);color:var(--text);border:1px solid var(--border)}
+  button.danger{background:var(--bad);color:#fff}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid var(--border)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  select,input[type=text],input[type=number]{
+    font:inherit;background:var(--card2);color:var(--text);
+    border:1px solid var(--border);border-radius:10px;padding:8px 10px;
+  }
+  label.lbl{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
+  input[type=range]{accent-color:var(--accent);width:100%}
+  .mono{font-family:var(--mono);font-size:12.5px}
+  .hash{font-family:var(--mono);font-size:12px;word-break:break-all;color:var(--muted)}
+  .kv{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:3px 0}
+  .kv b{font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:650}
+  .tag.ok{background:var(--good-bg);color:var(--good)}
+  .tag.bad{background:var(--bad-bg);color:var(--bad)}
+  .steps{counter-reset:step;list-style:none;padding:0;margin:0}
+  .steps li{counter-increment:step;position:relative;padding:8px 0 8px 42px;border-bottom:1px solid var(--border)}
+  .steps li:last-child{border-bottom:none}
+  .steps li::before{
+    content:counter(step);position:absolute;left:0;top:8px;
+    width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;
+  }
+  .tour{background:var(--accent-soft);border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-top:16px}
+  .tour ol{margin:6px 0 0;padding-left:20px}
+  .tour li{margin:4px 0}
+  /* Chain view */
+  #chain{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 14px}
+  .block{
+    min-width:270px;max-width:270px;flex:0 0 auto;
+    border:2px solid var(--good-border);background:var(--good-bg);
+    border-radius:16px;padding:14px;transition:all .25s ease;
+  }
+  .block.invalid{border-color:var(--bad-border);background:var(--bad-bg)}
+  .block .bhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .block .bnum{font-weight:700;font-size:15px}
+  .block .fld{margin:7px 0}
+  .block .fld label{font-size:11px;color:var(--muted);display:block;margin-bottom:2px}
+  .block .fld input{width:100%;font-family:var(--mono);font-size:11px;padding:5px 7px}
+  .block .reason{font-size:12px;color:var(--bad);margin-top:8px;font-weight:600;min-height:16px}
+  .block .txmini{font-family:var(--mono);font-size:10.5px;color:var(--muted);border-top:1px dashed var(--border);padding-top:6px;margin-top:6px}
+  @keyframes pop{0%{transform:scale(.8);opacity:0}60%{transform:scale(1.03)}100%{transform:scale(1);opacity:1}}
+  .block.new{animation:pop .4s ease}
+  /* Merkle */
+  .mlevel{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;align-items:center}
+  .mnode{
+    font-family:var(--mono);font-size:11px;background:var(--chip);border:1px solid var(--border);
+    border-radius:8px;padding:5px 8px;
+  }
+  .mnode.leaf{background:var(--card2)}
+  .mnode.path{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .mnode.target{background:var(--good-bg);border-color:var(--good);color:var(--good);font-weight:700}
+  .mlabel{font-size:11px;color:var(--muted);width:56px;flex:0 0 auto}
+  #log{
+    font-family:var(--mono);font-size:12px;background:var(--card2);border:1px solid var(--border);
+    border-radius:12px;padding:12px;max-height:180px;overflow:auto;white-space:pre-wrap;
+  }
+  .note{font-size:12.5px;color:var(--muted);background:var(--chip);border-radius:10px;padding:10px 12px;margin-top:12px}
+  .stat{display:inline-flex;flex-direction:column;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:8px 14px;min-width:120px}
+  .stat .v{font-size:20px;font-weight:700}
+  .stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:40px}
+  /* DARK MODE — declared AFTER the base body{} rule so it wins the cascade */
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000;
+      --text:#f5f5f7;
+      --muted:#98989d;
+      --card:#1c1c1e;
+      --card2:#161618;
+      --border:#38383a;
+      --accent:#2997ff;
+      --accent-soft:#0b2740;
+      --good:#4ad07a;
+      --good-bg:#12331f;
+      --good-border:#2f6b45;
+      --bad:#ff6b6b;
+      --bad-bg:#3a1516;
+      --bad-border:#7a2d30;
+      --chip:#2c2c2e;
+      --shadow:0 1px 3px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.5);
+    }
+    body{background:var(--bg);color:var(--text)}
+  }
+</style>
 </head>
 <body>
-<h1>ironchain</h1>
-<p>Site coming soon.</p>
-<p><a href="https://github.com/pavanchow/ironchain">View repository</a></p>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Ironchain</h1>
+    <p class="sub">A from-scratch, proof-of-work blockchain you can run in your browser. Mine real blocks, tamper with history, watch it break, then fork the chain and watch a reorg rewrite the balances. Everything below runs live in pure JavaScript — SHA-256 and all.</p>
+    <div class="repo"><a href="https://github.com/pavanchow/ironchain">View the Rust engine on GitHub →</a></div>
+    <div>
+      <span class="pill">Pure-JS SHA-256</span>
+      <span class="pill">Account model</span>
+      <span class="pill">Merkle proofs</span>
+      <span class="pill">Live mining</span>
+      <span class="pill">Fork choice + reorg</span>
+    </div>
+  </header>
+
+  <!-- HOW TO USE -->
+  <section class="card">
+    <h2>How to use this playground</h2>
+    <p class="desc">Every control on this page is wired to a working blockchain engine. Here is what each one does.</p>
+    <ol class="steps">
+      <li><b>Mempool &amp; new transactions.</b> Use the transaction form (or the <i>Random transaction</i> button) to queue transfers between wallets. Pending transactions wait in the mempool until a block is mined.</li>
+      <li><b>Difficulty slider.</b> Sets how many leading zero <i>bits</i> a block hash must have. Higher = exponentially more hashing work. Watch the attempt count and hashrate change on the next mine.</li>
+      <li><b>Mine block.</b> Takes every pending transaction, finds a nonce that satisfies proof-of-work, pays the selected miner a coinbase reward, and appends the block. The chain view grows with an animation and shows the hash, nonce, and attempts.</li>
+      <li><b>Tamper.</b> Every mined block exposes editable fields (parent hash, merkle root, timestamp, difficulty, nonce, miner) and each transaction's amount / sender / signature is editable too. Change any of them and the chain re-validates instantly: the broken block and <i>everything downstream</i> turns red with a reason. Hit <i>Restore chain</i> to undo.</li>
+      <li><b>Merkle tree.</b> Pick a block and a transaction to render its Merkle tree, highlight the inclusion-proof path, and verify it. The "test a non-included transaction" button shows a proof failing.</li>
+      <li><b>Wallets.</b> Balances and nonces update live after every mine and every reorg.</li>
+      <li><b>Trigger fork.</b> Builds a competing branch, extends it to greater cumulative work, and the engine performs a <i>reorg</i>: the active chain switches to the heavier branch and balances recompute.</li>
+    </ol>
+    <div class="tour">
+      <b>Guided tour (2 minutes):</b>
+      <ol>
+        <li>Click <b>Random transaction</b> two or three times to fill the mempool.</li>
+        <li>Click <b>Mine block</b>. A green block appears with a valid proof-of-work hash.</li>
+        <li>Mine one or two more blocks so you have a chain.</li>
+        <li>In any earlier block, edit a transaction <b>amount</b> — that block and all blocks after it turn <b>red</b>. Click <b>Restore chain</b>.</li>
+        <li>Open the <b>Merkle tree</b> panel, pick a transaction, and watch its inclusion path light up.</li>
+        <li>Click <b>Trigger fork</b> and watch the chain reorganize onto the heavier branch.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- CONTROLS -->
+  <section class="card">
+    <h2>Controls</h2>
+    <div class="grid cols3">
+      <div>
+        <h3>Mine</h3>
+        <div class="row">
+          <div style="flex:1">
+            <label class="lbl" for="minerSel">Miner (gets coinbase reward)</label>
+            <select id="minerSel"></select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="mineBtn">⛏ Mine block</button>
+          <button id="forkBtn" class="secondary">⑃ Trigger fork</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="restoreBtn" class="ghost">↺ Restore chain</button>
+        </div>
+      </div>
+      <div>
+        <h3>Difficulty</h3>
+        <label class="lbl">Leading zero bits: <b id="diffVal">12</b></label>
+        <input type="range" id="diffSlider" min="4" max="18" value="12">
+        <p class="note" style="margin-top:10px">Expected work ≈ 2<sup id="diffPow">12</sup> = <b id="diffExp">4096</b> hashes per block. Above ~18 bits the browser may pause noticeably.</p>
+      </div>
+      <div>
+        <h3>Last mine</h3>
+        <div class="row" style="gap:10px">
+          <div class="stat"><span class="v" id="statAttempts">—</span><span class="k">Attempts</span></div>
+          <div class="stat"><span class="v" id="statRate">—</span><span class="k">Hashes / s</span></div>
+        </div>
+        <div class="stat" style="margin-top:10px;min-width:0"><span class="v" id="statCumWork">—</span><span class="k">Cumulative work</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid cols2">
+    <!-- WALLETS -->
+    <section class="card">
+      <h2>Wallets</h2>
+      <p class="desc">Balances recompute from the active chain after every mine and reorg.</p>
+      <table id="walletTbl"><thead><tr><th>Name</th><th>Address</th><th>Balance</th><th>Nonce</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <!-- MEMPOOL -->
+    <section class="card">
+      <h2>Mempool</h2>
+      <p class="desc">Pending transactions. Cleared into the next mined block.</p>
+      <div class="row">
+        <div>
+          <label class="lbl" for="fromSel">From</label>
+          <select id="fromSel"></select>
+        </div>
+        <div>
+          <label class="lbl" for="toSel">To</label>
+          <select id="toSel"></select>
+        </div>
+        <div>
+          <label class="lbl" for="amtInp">Amount</label>
+          <input type="number" id="amtInp" min="1" value="25" style="width:90px">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="addTxBtn">＋ Add transaction</button>
+        <button id="randTxBtn" class="secondary">🎲 Random transaction</button>
+        <button id="clearMemBtn" class="ghost">Clear mempool</button>
+      </div>
+      <div id="mempoolBox" style="margin-top:14px"></div>
+    </section>
+  </div>
+
+  <!-- CHAIN -->
+  <section class="card">
+    <h2>The chain</h2>
+    <p class="desc">Newest block on the right. Green = valid, red = invalid. Edit any field to tamper; the break cascades downstream. Fields are recomputed and re-validated on change.</p>
+    <div id="chain"></div>
+    <div class="note">Signatures here are a keyed hash (MAC): <span class="mono">SHA256(secret ‖ from ‖ to ‖ amount ‖ nonce)</span>. Tampering with the amount, sender, or signature makes it un-recomputable and the block invalid. The real Ironchain engine uses hash-based <b>Lamport + Merkle (XMSS)</b> one-time signatures — this browser stand-in keeps the tamper demo synchronous and simple.</div>
+  </section>
+
+  <!-- MERKLE -->
+  <section class="card">
+    <h2>Merkle tree &amp; inclusion proof</h2>
+    <p class="desc">A block commits to its transactions with a Merkle root. Pick a block and a transaction to see the proof path that links a single leaf to the root. Odd levels duplicate the last node.</p>
+    <div class="row">
+      <div>
+        <label class="lbl" for="mkBlock">Block</label>
+        <select id="mkBlock"></select>
+      </div>
+      <div>
+        <label class="lbl" for="mkTx">Transaction (leaf)</label>
+        <select id="mkTx"></select>
+      </div>
+      <div style="align-self:flex-end">
+        <button id="mkProveBtn">Show inclusion proof</button>
+      </div>
+      <div style="align-self:flex-end">
+        <button id="mkFakeBtn" class="secondary">Test a non-included transaction</button>
+      </div>
+    </div>
+    <div id="mkVerdict" style="margin-top:14px"></div>
+    <div id="mkTree" style="margin-top:8px"></div>
+    <div id="mkProof" style="margin-top:8px"></div>
+  </section>
+
+  <!-- LOG -->
+  <section class="card">
+    <h2>Activity log</h2>
+    <div id="log"></div>
+  </section>
+
+  <footer>
+    Ironchain playground · pure JavaScript, no dependencies · <a href="https://github.com/pavanchow/ironchain">github.com/pavanchow/ironchain</a>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   SHA-256 (pure JS, operates on bytes, returns hex). No external requests.
+   ========================================================================= */
+const SHA_K = new Uint32Array([
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+]);
+function rotr(x,n){return (x>>>n)|(x<<(32-n));}
+function sha256bytes(msg){
+  const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+  const l = msg.length;
+  const bitLen = l*8;
+  const withOne = l+1;
+  const k = (56 - (withOne % 64) + 64) % 64;
+  const total = withOne + k + 8;
+  const buf = new Uint8Array(total);
+  buf.set(msg);
+  buf[l] = 0x80;
+  const hi = Math.floor(bitLen/0x100000000);
+  const lo = bitLen>>>0;
+  buf[total-8]=(hi>>>24)&0xff; buf[total-7]=(hi>>>16)&0xff; buf[total-6]=(hi>>>8)&0xff; buf[total-5]=hi&0xff;
+  buf[total-4]=(lo>>>24)&0xff; buf[total-3]=(lo>>>16)&0xff; buf[total-2]=(lo>>>8)&0xff; buf[total-1]=lo&0xff;
+  const w = new Uint32Array(64);
+  for(let off=0; off<total; off+=64){
+    for(let i=0;i<16;i++){
+      const j=off+i*4;
+      w[i]=(buf[j]<<24)|(buf[j+1]<<16)|(buf[j+2]<<8)|buf[j+3];
+    }
+    for(let i=16;i<64;i++){
+      const s0=rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>>3);
+      const s1=rotr(w[i-2],17)^rotr(w[i-2],19)^(w[i-2]>>>10);
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    let a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+    for(let i=0;i<64;i++){
+      const S1=rotr(e,6)^rotr(e,11)^rotr(e,25);
+      const ch=(e&f)^(~e&g);
+      const t1=(h+S1+ch+SHA_K[i]+w[i])|0;
+      const S0=rotr(a,2)^rotr(a,13)^rotr(a,22);
+      const maj=(a&b)^(a&c)^(b&c);
+      const t2=(S0+maj)|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;
+    H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;
+  }
+  const out=new Uint8Array(32);
+  for(let i=0;i<8;i++){out[i*4]=(H[i]>>>24)&0xff;out[i*4+1]=(H[i]>>>16)&0xff;out[i*4+2]=(H[i]>>>8)&0xff;out[i*4+3]=H[i]&0xff;}
+  return out;
+}
+function utf8(str){
+  const out=[];
+  for(let i=0;i<str.length;i++){
+    let c=str.charCodeAt(i);
+    if(c<0x80){out.push(c);}
+    else if(c<0x800){out.push(0xc0|(c>>6),0x80|(c&0x3f));}
+    else if(c>=0xd800&&c<=0xdbff){
+      const c2=str.charCodeAt(++i);
+      c=0x10000+((c&0x3ff)<<10)+(c2&0x3ff);
+      out.push(0xf0|(c>>18),0x80|((c>>12)&0x3f),0x80|((c>>6)&0x3f),0x80|(c&0x3f));
+    } else {out.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));}
+  }
+  return Uint8Array.from(out);
+}
+function toHex(bytes){
+  let s="";
+  for(let i=0;i<bytes.length;i++){s+=bytes[i].toString(16).padStart(2,"0");}
+  return s;
+}
+function sha256hex(str){return toHex(sha256bytes(utf8(str)));}
+function sha256d_hex(str){return toHex(sha256bytes(sha256bytes(utf8(str))));} // double SHA-256
+
+/* self-test: SHA256("abc") */
+const SHA_ABC="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+if(sha256hex("abc")!==SHA_ABC){ throw new Error("SHA-256 self-test failed"); }
+
+/* =========================================================================
+   Proof-of-work helper: count leading zero BITS of a hex digest.
+   ========================================================================= */
+function leadingZeroBits(hex){
+  let bits=0;
+  for(let i=0;i<hex.length;i++){
+    const nib=parseInt(hex[i],16);
+    if(nib===0){bits+=4;continue;}
+    if(nib&8)break; else if(nib&4){bits+=1;break;} else if(nib&2){bits+=2;break;} else {bits+=3;break;}
+  }
+  return bits;
+}
+const ZERO_HASH="0".repeat(64);
+
+/* =========================================================================
+   Merkle tree (duplicate-last-when-odd). Leaves are hex tx hashes.
+   ========================================================================= */
+function merkleLevels(leaves){
+  if(leaves.length===0) return [[ZERO_HASH]];
+  const levels=[leaves.slice()];
+  let cur=leaves.slice();
+  while(cur.length>1){
+    const next=[];
+    for(let i=0;i<cur.length;i+=2){
+      const a=cur[i], b=(i+1<cur.length)?cur[i+1]:cur[i];
+      next.push(sha256hex(a+b));
+    }
+    levels.push(next); cur=next;
+  }
+  return levels;
+}
+function merkleRootOf(leaves){ const l=merkleLevels(leaves); return l[l.length-1][0]; }
+function merkleProof(leaves,index){
+  const proof=[]; let idx=index; let cur=leaves.slice();
+  if(cur.length===0) return proof;
+  while(cur.length>1){
+    if(idx%2===0){ const sib=(idx+1<cur.length)?cur[idx+1]:cur[idx]; proof.push({siblingHex:sib,isRight:true}); }
+    else { proof.push({siblingHex:cur[idx-1],isRight:false}); }
+    const next=[];
+    for(let i=0;i<cur.length;i+=2){ const a=cur[i], b=(i+1<cur.length)?cur[i+1]:cur[i]; next.push(sha256hex(a+b)); }
+    idx=Math.floor(idx/2); cur=next;
+  }
+  return proof;
+}
+function verifyProof(leafHex,proof,root){
+  let h=leafHex;
+  for(const p of proof){ h = p.isRight ? sha256hex(h+p.siblingHex) : sha256hex(p.siblingHex+h); }
+  return h===root;
+}
+
+/* =========================================================================
+   Wallets, transactions, signatures (keyed-hash MAC teaching stand-in).
+   ========================================================================= */
+const COINBASE_REWARD=50;
+const WALLET_NAMES=["Alice","Bob","Carol","Dave"];
+const wallets={}; // name -> {name,address,seed}
+const addrToName={};
+WALLET_NAMES.forEach(n=>{
+  const address=sha256hex("addr:"+n).slice(0,40);
+  const seed=sha256hex("secret-seed:"+n);
+  wallets[n]={name:n,address,seed};
+  addrToName[address]=n;
+});
+const GENESIS_ALLOC={}; WALLET_NAMES.forEach(n=>{ GENESIS_ALLOC[wallets[n].address]=1000; });
+
+function nameOf(addr){ return addrToName[addr] || addr.slice(0,10)+"…"; }
+function signData(seed,from,to,amount,nonce){ return sha256hex(seed+"|"+from+"|"+to+"|"+amount+"|"+nonce); }
+function txSerialize(tx){ return tx.from+"|"+tx.to+"|"+tx.amount+"|"+tx.nonce+"|"+tx.signature; }
+function txHash(tx){ return sha256hex(txSerialize(tx)); }
+function txSignatureValid(tx){
+  const name=addrToName[tx.from];
+  if(!name) return false;
+  return signData(wallets[name].seed,tx.from,tx.to,tx.amount,tx.nonce)===tx.signature;
+}
+
+/* =========================================================================
+   Blocks & chain.  Block hash = SHA256(SHA256(serialized header)).
+   ========================================================================= */
+function headerSerialize(b){
+  return [b.parentHash,b.merkleRoot,b.timestamp,b.difficultyBits,b.nonce,b.miner].join("|");
+}
+function blockHashOf(b){ return sha256d_hex(headerSerialize(b)); }
+
+let mineStats={attempts:0,rate:0};
+function mineBlock(transactions,parentHash,difficultyBits,miner,isGenesis){
+  const merkleRoot=merkleRootOf(transactions.map(txHash));
+  const b={parentHash,merkleRoot,timestamp:Date.now(),difficultyBits,nonce:0,miner,transactions,isGenesis:!!isGenesis};
+  const t0=performance.now();
+  let attempts=0;
+  while(true){
+    const h=blockHashOf(b);
+    attempts++;
+    if(leadingZeroBits(h)>=difficultyBits){ b.hash=h; break; }
+    b.nonce++;
+    if(attempts>6000000){ b.hash=h; break; } // safety valve
+  }
+  const secs=Math.max((performance.now()-t0)/1000,1e-6);
+  mineStats={attempts,rate:Math.round(attempts/secs)};
+  return b;
+}
+
+/* Replay active chain -> account state {addr:{balance,nonce}} (display; ignores validity). */
+function replay(chain){
+  const acc={};
+  for(const a in GENESIS_ALLOC){ acc[a]={balance:GENESIS_ALLOC[a],nonce:0}; }
+  const ensure=a=>{ if(!acc[a]) acc[a]={balance:0,nonce:0}; return acc[a]; };
+  for(const blk of chain){
+    if(!blk.isGenesis){ const m=wallets[blk.miner]; if(m) ensure(m.address).balance+=COINBASE_REWARD; }
+    for(const tx of blk.transactions){
+      const f=ensure(tx.from), t=ensure(tx.to);
+      f.balance-=tx.amount; f.nonce+=1; t.balance+=tx.amount;
+    }
+  }
+  return acc;
+}
+/* Projected state = confirmed + mempool (for assigning nonce & checking balance). */
+function projected(){
+  const acc=replay(bc.chain);
+  const ensure=a=>{ if(!acc[a]) acc[a]={balance:0,nonce:0}; return acc[a]; };
+  for(const tx of bc.mempool){ const f=ensure(tx.from),t=ensure(tx.to); f.balance-=tx.amount; f.nonce+=1; t.balance+=tx.amount; }
+  return acc;
+}
+function cumulativeWork(chain){
+  let w=0; for(const b of chain){ if(!b.isGenesis) w+=Math.pow(2,b.difficultyBits); } return w;
+}
+
+/* Validate the active chain block-by-block; recompute everything from fields. */
+function validateChain(chain){
+  const results=[]; let brokenFrom=-1;
+  for(let i=0;i<chain.length;i++){
+    const b=chain[i];
+    let valid=true, reason="";
+    if(brokenFrom>=0){ results.push({valid:false,reason:"Broken: an earlier block is invalid"}); continue; }
+    // merkle
+    const wantRoot=merkleRootOf(b.transactions.map(txHash));
+    if(b.transactions.length===0 && b.isGenesis){ /* genesis empty ok */ }
+    if(b.merkleRoot!==wantRoot){ valid=false; reason="Merkle root does not match its transactions"; }
+    // signatures
+    if(valid){
+      for(const tx of b.transactions){ if(!txSignatureValid(tx)){ valid=false; reason="Invalid transaction signature (tampered from/to/amount/signature)"; break; } }
+    }
+    // pow
+    const h=blockHashOf(b);
+    if(valid){
+      const bits=Number(b.difficultyBits);
+      if(!(bits>=1) || leadingZeroBits(h)<bits){ valid=false; reason="Proof-of-work does not meet difficulty target"; }
+    }
+    // parent link
+    if(valid && i>0){
+      const parentHash=blockHashOf(chain[i-1]);
+      if(b.parentHash!==parentHash){ valid=false; reason="Parent hash does not match the previous block"; }
+    }
+    if(valid && i===0 && b.parentHash!==ZERO_HASH){ valid=false; reason="Genesis parent hash must be all zeroes"; }
+    results.push({valid,reason,hash:h});
+    if(!valid) brokenFrom=i;
+  }
+  return results;
+}
+
+/* =========================================================================
+   Blockchain state object
+   ========================================================================= */
+const bc={ chain:[], mempool:[], pristine:null };
+
+function currentDifficulty(){ return Number(document.getElementById("diffSlider").value); }
+
+function initGenesis(){
+  const g=mineBlock([],ZERO_HASH,currentDifficulty(),WALLET_NAMES[0],true);
+  bc.chain=[g];
+  bc.mempool=[];
+  snapshot();
+  log("Genesis block mined. Initial allocation: 1000 to each of "+WALLET_NAMES.join(", ")+".");
+}
+
+function snapshot(){ bc.pristine=JSON.stringify(bc.chain); }
+function restore(){
+  if(!bc.pristine) return;
+  bc.chain=JSON.parse(bc.pristine);
+  log("Chain restored to the last valid state.");
+  renderAll();
+}
+
+/* =========================================================================
+   Actions
+   ========================================================================= */
+function addTransaction(fromName,toName,amount){
+  if(fromName===toName){ log("✗ Rejected: sender and recipient are the same."); return false; }
+  amount=Math.floor(Number(amount));
+  if(!(amount>0)){ log("✗ Rejected: amount must be a positive integer."); return false; }
+  const from=wallets[fromName], to=wallets[toName];
+  const acc=projected();
+  const bal=(acc[from.address]?acc[from.address].balance:0);
+  const nonce=(acc[from.address]?acc[from.address].nonce:0);
+  if(bal<amount){ log("✗ Rejected: "+fromName+" has "+bal+", cannot send "+amount+"."); return false; }
+  const signature=signData(from.seed,from.address,to.address,amount,nonce);
+  bc.mempool.push({from:from.address,to:to.address,amount,nonce,signature});
+  log("✓ Queued: "+fromName+" → "+toName+" "+amount+" (nonce "+nonce+").");
+  renderMempool(); renderWallets();
+  return true;
+}
+function randomTransaction(){
+  const acc=projected();
+  const solvent=WALLET_NAMES.filter(n=>(acc[wallets[n].address]?acc[wallets[n].address].balance:0)>0);
+  if(solvent.length===0){ log("✗ No wallet has spendable balance right now."); return; }
+  const fromName=solvent[Math.floor(Math.random()*solvent.length)];
+  let toName; do{ toName=WALLET_NAMES[Math.floor(Math.random()*WALLET_NAMES.length)]; }while(toName===fromName);
+  const bal=acc[wallets[fromName].address].balance;
+  const amount=Math.max(1,Math.floor(Math.random()*Math.min(bal,80))+1);
+  addTransaction(fromName,toName,amount);
+}
+function mine(){
+  const miner=document.getElementById("minerSel").value;
+  const txs=bc.mempool.slice();
+  const parentHash=blockHashOf(bc.chain[bc.chain.length-1]);
+  const b=mineBlock(txs,parentHash,currentDifficulty(),miner,false);
+  b._new=true;
+  bc.chain.push(b);
+  bc.mempool=[];
+  snapshot();
+  log("⛏ Block #"+(bc.chain.length-1)+" mined by "+miner+" · "+txs.length+" tx · nonce "+b.nonce+" · "+mineStats.attempts+" attempts · "+mineStats.rate+" H/s · hash "+b.hash.slice(0,16)+"…");
+  renderAll();
+}
+function triggerFork(){
+  if(bc.chain.length<3){ log("✗ Mine at least 2 blocks before forking (need something to reorg past)."); return; }
+  const forkIndex=bc.chain.length-2; // keep prefix through here, replace the tip
+  const prefix=bc.chain.slice(0,forkIndex+1);
+  const branch=prefix.map(b=>JSON.parse(JSON.stringify(b)));
+  const oldLen=bc.chain.length;
+  const discarded=oldLen-branch.length;
+  // extend competing branch with 2 coinbase-only blocks -> heavier cumulative work
+  const miners=["Carol","Dave"];
+  for(let k=0;k<2;k++){
+    const parentHash=blockHashOf(branch[branch.length-1]);
+    const nb=mineBlock([],parentHash,currentDifficulty(),miners[k%2],false);
+    branch.push(nb);
+  }
+  const wOld=cumulativeWork(bc.chain), wNew=cumulativeWork(branch);
+  log("Competing branch built: forked at block #"+forkIndex+", added 2 blocks. Work old="+wOld+" vs new="+wNew+".");
+  if(wNew>wOld){
+    bc.chain=branch;
+    bc.chain[bc.chain.length-1]._new=true;
+    snapshot();
+    log("↻ REORG: heavier branch wins. Discarded "+discarded+" block(s); balances recomputed.");
+    renderAll();
+  } else {
+    log("No reorg: competing branch was not heavier.");
+  }
+}
+
+/* =========================================================================
+   Rendering
+   ========================================================================= */
+function log(msg){
+  const el=document.getElementById("log");
+  const time=new Date().toLocaleTimeString();
+  el.textContent = "["+time+"] "+msg+"\n"+el.textContent;
+}
+function fillWalletSelects(){
+  const opts=WALLET_NAMES.map(n=>'<option value="'+n+'">'+n+'</option>').join("");
+  document.getElementById("minerSel").innerHTML=opts;
+  document.getElementById("fromSel").innerHTML=opts;
+  document.getElementById("toSel").innerHTML=WALLET_NAMES.map((n,i)=>'<option value="'+n+'"'+(i===1?" selected":"")+'>'+n+'</option>').join("");
+}
+function renderWallets(){
+  const acc=replay(bc.chain);
+  const tb=document.querySelector("#walletTbl tbody");
+  tb.innerHTML=WALLET_NAMES.map(n=>{
+    const a=wallets[n].address;
+    const s=acc[a]||{balance:0,nonce:0};
+    return "<tr><td><b>"+n+"</b></td><td class='hash'>"+a.slice(0,16)+"…</td><td><b>"+s.balance+"</b></td><td>"+s.nonce+"</td></tr>";
+  }).join("");
+}
+function renderMempool(){
+  const box=document.getElementById("mempoolBox");
+  if(bc.mempool.length===0){ box.innerHTML="<p class='desc' style='margin:0'>Mempool is empty. Add a transaction above.</p>"; return; }
+  let html="<table><thead><tr><th>From</th><th>To</th><th>Amount</th><th>Nonce</th><th>Sig</th></tr></thead><tbody>";
+  html+=bc.mempool.map(tx=>"<tr><td>"+nameOf(tx.from)+"</td><td>"+nameOf(tx.to)+"</td><td>"+tx.amount+"</td><td>"+tx.nonce+"</td><td class='hash'>"+tx.signature.slice(0,10)+"…</td></tr>").join("");
+  html+="</tbody></table>";
+  box.innerHTML=html;
+}
+function renderChain(){
+  const results=validateChain(bc.chain);
+  const cont=document.getElementById("chain");
+  cont.innerHTML="";
+  bc.chain.forEach((b,i)=>{
+    const r=results[i];
+    const div=document.createElement("div");
+    div.className="block"+(r.valid?"":" invalid")+(b._new?" new":"");
+    const title=b.isGenesis?"Genesis":"Block #"+i;
+    let txHtml="";
+    if(b.transactions.length===0){ txHtml="<div class='txmini'>no transactions"+(b.isGenesis?" (allocations applied)":" (coinbase only)")+"</div>"; }
+    else{
+      txHtml=b.transactions.map((tx,ti)=>{
+        return "<div class='txmini'>"+
+          "<div class='fld'><label>tx"+ti+" amount</label><input data-b='"+i+"' data-tx='"+ti+"' data-f='amount' value='"+tx.amount+"'></div>"+
+          "<div class='fld'><label>tx"+ti+" sender (addr)</label><input data-b='"+i+"' data-tx='"+ti+"' data-f='from' value='"+tx.from+"'></div>"+
+          "<div class='fld'><label>tx"+ti+" signature</label><input data-b='"+i+"' data-tx='"+ti+"' data-f='signature' value='"+tx.signature+"'></div>"+
+          "<div class='hash'>"+nameOf(tx.from)+" → "+nameOf(tx.to)+"</div>"+
+        "</div>";
+      }).join("");
+    }
+    div.innerHTML=
+      "<div class='bhead'><span class='bnum'>"+title+"</span><span class='tag "+(r.valid?"ok":"bad")+"'>"+(r.valid?"valid":"invalid")+"</span></div>"+
+      "<div class='fld'><label>block hash (recomputed)</label><input value='"+r.hash+"' readonly></div>"+
+      (b.isGenesis?"":"<div class='fld'><label>parent hash</label><input data-b='"+i+"' data-f='parentHash' value='"+b.parentHash+"'></div>")+
+      "<div class='fld'><label>merkle root</label><input data-b='"+i+"' data-f='merkleRoot' value='"+b.merkleRoot+"'></div>"+
+      "<div class='fld'><label>timestamp</label><input data-b='"+i+"' data-f='timestamp' value='"+b.timestamp+"'></div>"+
+      "<div class='fld'><label>difficulty bits</label><input data-b='"+i+"' data-f='difficultyBits' value='"+b.difficultyBits+"'></div>"+
+      "<div class='fld'><label>PoW nonce</label><input data-b='"+i+"' data-f='nonce' value='"+b.nonce+"'></div>"+
+      "<div class='fld'><label>miner</label><input data-b='"+i+"' data-f='miner' value='"+b.miner+"'></div>"+
+      txHtml+
+      "<div class='reason'>"+(r.valid?"":("⚠ "+r.reason))+"</div>";
+    cont.appendChild(div);
+    b._new=false;
+  });
+  cont.scrollLeft=cont.scrollWidth;
+  document.getElementById("statAttempts").textContent=mineStats.attempts||"—";
+  document.getElementById("statRate").textContent=mineStats.rate||"—";
+  document.getElementById("statCumWork").textContent=cumulativeWork(bc.chain).toLocaleString();
+}
+function onChainEdit(e){
+  const t=e.target;
+  if(!t.dataset || t.dataset.b===undefined) return;
+  const bi=Number(t.dataset.b);
+  const b=bc.chain[bi];
+  if(!b) return;
+  const field=t.dataset.f;
+  if(t.dataset.tx!==undefined){
+    const tx=b.transactions[Number(t.dataset.tx)];
+    if(field==="amount"){ tx.amount=Number(t.value); }
+    else { tx[field]=t.value.trim(); }
+  } else {
+    if(field==="timestamp"||field==="difficultyBits"||field==="nonce"){ b[field]=Number(t.value); }
+    else { b[field]=t.value.trim(); }
+  }
+  log("✎ Tampered with "+(t.dataset.tx!==undefined?("tx"+t.dataset.tx+" "):"")+field+" of block #"+bi+". Re-validating…");
+  renderChain(); renderWallets();
+}
+
+/* Merkle panel */
+function fillMerkleSelects(){
+  const sel=document.getElementById("mkBlock");
+  sel.innerHTML=bc.chain.map((b,i)=>'<option value="'+i+'">'+(b.isGenesis?"Genesis":"Block #"+i)+" ("+b.transactions.length+" tx)</option>").join("");
+  // default to a block with transactions if one exists
+  const withTx=bc.chain.findIndex(b=>b.transactions.length>0);
+  if(withTx>=0) sel.value=String(withTx);
+  fillMerkleTxSelect();
+}
+function fillMerkleTxSelect(){
+  const bi=Number(document.getElementById("mkBlock").value);
+  const b=bc.chain[bi];
+  const sel=document.getElementById("mkTx");
+  if(!b || b.transactions.length===0){ sel.innerHTML='<option value="-1">(no transactions)</option>'; return; }
+  sel.innerHTML=b.transactions.map((tx,i)=>'<option value="'+i+'">tx'+i+": "+nameOf(tx.from)+"→"+nameOf(tx.to)+" "+tx.amount+"</option>").join("");
+}
+function renderMerkleTree(highlightPath,leafIdx){
+  const bi=Number(document.getElementById("mkBlock").value);
+  const b=bc.chain[bi];
+  const box=document.getElementById("mkTree");
+  if(!b){ box.innerHTML=""; return; }
+  const leaves=b.transactions.map(txHash);
+  const levels=merkleLevels(leaves);
+  // compute path node index per level
+  const pathIdx=[]; let idx=leafIdx;
+  for(let l=0;l<levels.length;l++){ pathIdx.push(idx); idx=Math.floor(idx/2); }
+  let html="";
+  levels.forEach((lvl,l)=>{
+    const label=l===0?"leaves":(l===levels.length-1?"root":"level "+l);
+    html+="<div class='mlevel'><span class='mlabel'>"+label+"</span>";
+    html+=lvl.map((h,ni)=>{
+      let cls="mnode"+(l===0?" leaf":"");
+      if(highlightPath){
+        if(l===0 && ni===leafIdx) cls+=" target";
+        else if(ni===pathIdx[l]) cls+=" path";
+      }
+      return "<span class='"+cls+"'>"+h.slice(0,10)+"…</span>";
+    }).join("");
+    html+="</div>";
+  });
+  box.innerHTML=html;
+}
+function showProof(){
+  const bi=Number(document.getElementById("mkBlock").value);
+  const b=bc.chain[bi];
+  const ti=Number(document.getElementById("mkTx").value);
+  const vd=document.getElementById("mkVerdict");
+  const pf=document.getElementById("mkProof");
+  if(!b || ti<0 || b.transactions.length===0){ vd.innerHTML="<span class='tag bad'>no transaction selected</span>"; pf.innerHTML=""; renderMerkleTree(false,-1); return; }
+  const leaves=b.transactions.map(txHash);
+  const root=merkleRootOf(leaves);
+  const proof=merkleProof(leaves,ti);
+  const ok=verifyProof(leaves[ti],proof,root);
+  renderMerkleTree(true,ti);
+  vd.innerHTML="Root <span class='mono'>"+root.slice(0,16)+"…</span> · proof for tx"+ti+": <span class='tag "+(ok?"ok":"bad")+"'>"+(ok?"INCLUDED ✓":"FAILED")+"</span>";
+  pf.innerHTML="<div class='desc'>Inclusion proof ("+proof.length+" sibling"+(proof.length===1?"":"s")+"):</div>"+
+    (proof.length?proof.map((p,i)=>"<div class='mono'>step "+i+": "+(p.isRight?"hash ‖ ":"")+p.siblingHex.slice(0,16)+"…"+(p.isRight?"":" ‖ hash")+"</div>").join(""):"<div class='mono'>(single-leaf tree: the leaf is the root)</div>");
+}
+function testFakeTx(){
+  const bi=Number(document.getElementById("mkBlock").value);
+  const b=bc.chain[bi];
+  const vd=document.getElementById("mkVerdict");
+  const pf=document.getElementById("mkProof");
+  if(!b || b.transactions.length===0){ vd.innerHTML="<span class='tag bad'>pick a block with transactions first</span>"; return; }
+  const leaves=b.transactions.map(txHash);
+  const root=merkleRootOf(leaves);
+  const fakeLeaf=sha256hex("this-transaction-was-never-in-the-block");
+  const proof=merkleProof(leaves,0); // reuse position-0 proof
+  const ok=verifyProof(fakeLeaf,proof,root);
+  renderMerkleTree(false,-1);
+  vd.innerHTML="Non-included tx <span class='mono'>"+fakeLeaf.slice(0,16)+"…</span> against root <span class='mono'>"+root.slice(0,12)+"…</span>: <span class='tag "+(ok?"ok":"bad")+"'>"+(ok?"unexpectedly INCLUDED":"REJECTED ✓")+"</span>";
+  pf.innerHTML="<div class='desc'>A transaction that was never in this block cannot produce a path to the committed root, so verification fails — exactly what a light client relies on.</div>";
+}
+
+function renderAll(){
+  renderWallets(); renderMempool(); renderChain(); fillMerkleSelects();
+  const vd=document.getElementById("mkVerdict"); if(vd) vd.innerHTML="";
+  const tree=document.getElementById("mkTree"); if(tree) tree.innerHTML="";
+  const pf=document.getElementById("mkProof"); if(pf) pf.innerHTML="";
+}
+
+/* =========================================================================
+   Wire up
+   ========================================================================= */
+function updateDiffLabels(){
+  const v=currentDifficulty();
+  document.getElementById("diffVal").textContent=v;
+  document.getElementById("diffPow").textContent=v;
+  document.getElementById("diffExp").textContent=Math.pow(2,v).toLocaleString();
+}
+document.getElementById("diffSlider").addEventListener("input",updateDiffLabels);
+document.getElementById("mineBtn").addEventListener("click",mine);
+document.getElementById("forkBtn").addEventListener("click",triggerFork);
+document.getElementById("restoreBtn").addEventListener("click",restore);
+document.getElementById("addTxBtn").addEventListener("click",()=>{
+  addTransaction(document.getElementById("fromSel").value,document.getElementById("toSel").value,document.getElementById("amtInp").value);
+});
+document.getElementById("randTxBtn").addEventListener("click",randomTransaction);
+document.getElementById("clearMemBtn").addEventListener("click",()=>{ bc.mempool=[]; log("Mempool cleared."); renderMempool(); renderWallets(); });
+document.getElementById("chain").addEventListener("change",onChainEdit);
+document.getElementById("mkBlock").addEventListener("change",()=>{ fillMerkleTxSelect(); renderMerkleTree(false,-1); document.getElementById("mkVerdict").innerHTML=""; document.getElementById("mkProof").innerHTML=""; });
+document.getElementById("mkProveBtn").addEventListener("click",showProof);
+document.getElementById("mkFakeBtn").addEventListener("click",testFakeTx);
+
+/* Boot */
+updateDiffLabels();
+fillWalletSelects();
+initGenesis();
+/* seed a couple of transactions and one mined block so the page is alive on load */
+addTransaction("Alice","Bob",40);
+addTransaction("Carol","Dave",15);
+mine();
+renderAll();
+</script>
 </body>
 </html>
