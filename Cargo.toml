@@ -1,0 +1,18 @@
+[package]
+name = "ironchain"
+version = "0.1.0"
+edition = "2021"
+description = "A from-scratch, zero-dependency proof-of-work blockchain with hash-based post-quantum signatures"
+license = "MIT"
+repository = "https://github.com/pavanchow/ironchain"
+
+[[bin]]
+name = "ironchain"
+path = "src/main.rs"
+
+[lib]
+name = "ironchain"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3
