@@ -53,7 +53,11 @@ fn build_fixture() -> Fixture {
     let seed = env_u64("IRONCHAIN_SEED", 12345);
 
     let config = Config {
-        genesis_difficulty: 8,
+        // Difficulty 12 makes proof of work the dominant cost of a max-scale
+        // run, which is the property the stress calibration wants to exercise:
+        // at large IRONCHAIN_FUZZ_OPS nearly all the time is mining and block
+        // validation, not fixture setup. The default 6-block CI run stays fast.
+        genesis_difficulty: 12,
         subsidy: 100,
         retarget_interval: 0,
         target_spacing: 10,

@@ -81,12 +81,49 @@ fn bit_set(msg: &[u8; 32], i: usize) -> bool {
 /// configurations are rejected instead of exhausting memory.
 pub const MAX_TREE_HEIGHT: u32 = 31;
 
+/// Process-wide memo of derived leaf public keys, keyed by `(seed, height)`.
+///
+/// `leaf_public_key` is a pure function of the seed and the leaf index, so the
+/// derived leaf set for a wallet is immutable and safe to share. Signing and
+/// address derivation both need the full leaf set, and without the memo every
+/// single signature would re-derive all `2^height` leaf keys, which at wallet
+/// height 8 means hundreds of thousands of hash compressions per signature.
+/// With the memo the cost is paid once per wallet and every later signature
+/// from the same wallet is linear in the tree height. The cache holds only
+/// public values derived from seeds the caller already holds, and wallets in
+/// this crate number in the tens, so no eviction is needed.
+/// Memo of derived leaf public keys per `(seed, height)` wallet.
+type LeafCache = std::collections::HashMap<([u8; 32], u32), std::sync::Arc<Vec<[u8; 32]>>>;
+
+fn leaf_cache() -> &'static std::sync::Mutex<LeafCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<LeafCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(LeafCache::new()))
+}
+
 /// Compute all leaf public keys for a tree of the given height.
 ///
 /// # Panics
 ///
 /// Panics when `height` is above [`MAX_TREE_HEIGHT`].
-fn all_leaves(seed: &[u8; 32], height: u32) -> Vec<[u8; 32]> {
+fn all_leaves(seed: &[u8; 32], height: u32) -> std::sync::Arc<Vec<[u8; 32]>> {
+    let key = (*seed, height);
+    {
+        let cache = leaf_cache().lock().expect("leaf key cache lock");
+        if let Some(leaves) = cache.get(&key) {
+            return std::sync::Arc::clone(leaves);
+        }
+    }
+    // Compute outside the lock so unrelated wallets never queue behind a
+    // derivation in progress, then let whichever thread finishes first win.
+    let leaves = std::sync::Arc::new(build_all_leaves(seed, height));
+    let mut cache = leaf_cache().lock().expect("leaf key cache lock");
+    cache.entry(key).or_insert_with(|| std::sync::Arc::clone(&leaves));
+    leaves
+}
+
+/// Derive every leaf public key from scratch. Callers should prefer
+/// [`all_leaves`], which memoizes the result per wallet.
+fn build_all_leaves(seed: &[u8; 32], height: u32) -> Vec<[u8; 32]> {
     assert!(
         height <= MAX_TREE_HEIGHT,
         "key tree height above {MAX_TREE_HEIGHT} is infeasible to build"
@@ -99,7 +136,7 @@ fn all_leaves(seed: &[u8; 32], height: u32) -> Vec<[u8; 32]> {
 
 /// The address for a seed and tree height: the Merkle root over all leaf keys.
 pub fn compute_root(seed: &[u8; 32], height: u32) -> [u8; 32] {
-    let mut level = all_leaves(seed, height);
+    let mut level = all_leaves(seed, height).as_ref().clone();
     while level.len() > 1 {
         let mut next = Vec::with_capacity(level.len() / 2);
         for pair in level.chunks(2) {
@@ -112,7 +149,7 @@ pub fn compute_root(seed: &[u8; 32], height: u32) -> [u8; 32] {
 
 /// Build the authentication path (sibling per level) for `index`.
 fn auth_path(seed: &[u8; 32], height: u32, index: u32) -> Vec<[u8; 32]> {
-    let mut level = all_leaves(seed, height);
+    let mut level = all_leaves(seed, height).as_ref().clone();
     let mut idx = index as usize;
     let mut path = Vec::with_capacity(height as usize);
     while level.len() > 1 {
@@ -370,5 +407,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn memoized_leaf_keys_do_not_change_signatures() {
+        // The leaf-key memo must be invisible: repeated and interleaved
+        // signing from the same and different wallets produces byte-identical
+        // signatures to the first, cache-cold call.
+        let a = seed(21);
+        let b = seed(22);
+        let msg = sha256(b"memo check");
+        let first = sign(&a, 4, 3, &msg).to_bytes();
+        // Interleave another wallet and repeated leaves before re-signing.
+        let _ = sign(&b, 4, 0, &msg).to_bytes();
+        for _ in 0..3 {
+            assert_eq!(sign(&a, 4, 3, &msg).to_bytes(), first);
+        }
+        // A different leaf under the same wallet still verifies against the
+        // same address, so the memo serves the right leaf set.
+        assert!(verify(&compute_root(&a, 4), &msg, &sign(&a, 4, 9, &msg)));
+    }
+
+    #[test]
+    fn oversized_auth_path_rejected_without_panicking() {
+        // A 64-entry authentication path would shift 1u64 by 64 while
+        // verifying, which panics on overflow. The verifier must reject any
+        // path that large before touching the shift, and the strict parser
+        // must reject the same shape and one entry beyond it.
+        let s = seed(23);
+        let address = compute_root(&s, 3);
+        let msg = sha256(b"path bomb");
+        let mut sig = sign(&s, 3, 0, &msg);
+        sig.auth_path = vec![[0u8; 32]; 64];
+        assert!(!verify(&address, &msg, &sig));
+        // A path of 63 entries parses no tree this crate builds and must also
+        // fail verification rather than panic.
+        sig.auth_path = vec![[0u8; 32]; 63];
+        assert!(!verify(&address, &msg, &sig));
+        // Serialization accepts up to 255 path entries, but parsing rejects
+        // anything over 64 before allocating.
+        sig.auth_path = vec![[0u8; 32]; 65];
+        let bytes = sig.to_bytes();
+        assert!(Signature::from_bytes(&bytes).is_none());
     }
 }
