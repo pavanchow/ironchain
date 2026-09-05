@@ -14,6 +14,7 @@
 //! - [`block`]: block headers, hashing, and proof of work.
 //! - [`state`]: account world state and the state transition.
 //! - [`chain`]: fork choice, reorg, retargeting, mempool, and mining.
+//! - [`spv`]: light-client simplified payment verification proofs.
 //! - [`rng`]: a deterministic PRNG for tests and the demo.
 
 // Every public function returns a value, so annotating each pure function with
@@ -27,6 +28,7 @@ pub mod merkle;
 pub mod rng;
 pub mod sha256;
 pub mod sig;
+pub mod spv;
 pub mod state;
 pub mod tx;
 
