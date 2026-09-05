@@ -34,6 +34,30 @@ impl Header {
         b
     }
 
+    /// Strict inverse of [`Header::to_bytes`]: exactly 116 bytes, `None` on
+    /// truncation or trailing bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Header> {
+        use crate::ByteCursor;
+        let mut b = bytes;
+        let parent_hash = b.take(32)?.try_into().ok()?;
+        let merkle_root = b.take(32)?.try_into().ok()?;
+        let timestamp = u64::from_le_bytes(b.take(8)?.try_into().ok()?);
+        let difficulty_bits = u32::from_le_bytes(b.take(4)?.try_into().ok()?);
+        let miner = b.take(32)?.try_into().ok()?;
+        let nonce = u64::from_le_bytes(b.take(8)?.try_into().ok()?);
+        if !b.is_empty() {
+            return None;
+        }
+        Some(Header {
+            parent_hash,
+            merkle_root,
+            timestamp,
+            difficulty_bits,
+            miner,
+            nonce,
+        })
+    }
+
     /// The block hash: double SHA-256 of the serialized header.
     pub fn hash(&self) -> [u8; 32] {
         sha256d(&self.to_bytes())
@@ -65,9 +89,11 @@ pub fn meets_target(hash: &[u8; 32], difficulty_bits: u32) -> bool {
     leading_zero_bits(hash) >= difficulty_bits
 }
 
-/// Expected work to produce a block of the given difficulty.
+/// Expected work to produce a block of the given difficulty. The value is
+/// `2^difficulty_bits` saturated to `u128::MAX` for `difficulty_bits >= 128`,
+/// so the computation can never panic on an extreme difficulty.
 pub fn block_work(difficulty_bits: u32) -> u128 {
-    1u128 << difficulty_bits
+    1u128.checked_shl(difficulty_bits).unwrap_or(u128::MAX)
 }
 
 impl Block {
@@ -98,7 +124,16 @@ impl Block {
 
 /// Mine: search nonces until the header hash meets its difficulty. Returns the
 /// number of attempts made. The header's `nonce` is updated in place.
+///
+/// # Panics
+///
+/// Panics when `difficulty_bits > 256`: no 256-bit hash can ever carry more
+/// than 256 leading zero bits, so mining would otherwise never terminate.
 pub fn mine(header: &mut Header) -> u64 {
+    assert!(
+        header.difficulty_bits <= 256,
+        "difficulty_bits above 256 can never be satisfied"
+    );
     let mut attempts: u64 = 0;
     loop {
         attempts += 1;
@@ -137,5 +172,36 @@ mod tests {
         let attempts = mine(&mut header);
         assert!(meets_target(&header.hash(), header.difficulty_bits));
         assert!(attempts >= 1);
+    }
+
+    #[test]
+    fn work_is_saturated_not_panicking_at_extreme_bits() {
+        assert_eq!(block_work(0), 1);
+        assert_eq!(block_work(64), 1u128 << 64);
+        assert_eq!(block_work(127), 1u128 << 127);
+        // 128 and beyond saturate instead of shifting out of range.
+        assert_eq!(block_work(128), u128::MAX);
+        assert_eq!(block_work(240), u128::MAX);
+        assert_eq!(block_work(u32::MAX), u128::MAX);
+        // Difficulty 0 is trivially met, difficulty 256 is met only by the
+        // all-zero hash, and 257 can never be met.
+        let zero = [0u8; 32];
+        assert!(meets_target(&zero, 0));
+        assert!(meets_target(&zero, 256));
+        assert!(!meets_target(&[0xff; 32], 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "can never be satisfied")]
+    fn mining_impossible_difficulty_panics_instead_of_hanging() {
+        let mut header = Header {
+            parent_hash: [0u8; 32],
+            merkle_root: [0u8; 32],
+            timestamp: 1,
+            difficulty_bits: 257,
+            miner: [1u8; 32],
+            nonce: 0,
+        };
+        mine(&mut header);
     }
 }

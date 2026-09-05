@@ -62,14 +62,42 @@ impl Transaction {
     /// Verify the signature commits to this transaction under `from`.
     pub fn verify_signature(&self) -> bool {
         // The signing leaf index must equal the nonce.
-        if self.signature.index as u64 != self.nonce {
+        if u64::from(self.signature.index) != self.nonce {
             return false;
         }
         sig::verify(&self.from, &self.signing_hash(), &self.signature)
     }
+
+    /// Strict inverse of [`Transaction::to_bytes`]: the header fields are fixed
+    /// width and the signature must consume the remaining bytes exactly.
+    /// Returns `None` on truncation, trailing bytes, or a malformed signature.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Transaction> {
+        use crate::ByteCursor;
+        let mut b = bytes;
+        let from = b.take(32)?.try_into().ok()?;
+        let to = b.take(32)?.try_into().ok()?;
+        let amount = u64::from_le_bytes(b.take(8)?.try_into().ok()?);
+        let fee = u64::from_le_bytes(b.take(8)?.try_into().ok()?);
+        let nonce = u64::from_le_bytes(b.take(8)?.try_into().ok()?);
+        let signature = Signature::from_bytes(b)?;
+        Some(Transaction {
+            from,
+            to,
+            amount,
+            fee,
+            nonce,
+            signature,
+        })
+    }
 }
 
 /// Build and sign a transaction from a wallet seed.
+///
+/// # Panics
+///
+/// Panics when `nonce` exceeds the leaf space of a `u32` index or the key
+/// tree bounds, via [`sig::sign`]. Such a nonce could never verify anyway,
+/// because the leaf index must equal the nonce.
 pub fn build_signed(
     seed: &[u8; 32],
     height: u32,
@@ -79,7 +107,13 @@ pub fn build_signed(
     fee: u64,
     nonce: u64,
 ) -> Transaction {
+    assert!(
+        u32::try_from(nonce).is_ok(),
+        "nonce beyond the one-time-key leaf space"
+    );
     let msg = sha256(&signing_bytes(&from, &to, amount, fee, nonce));
+    #[allow(clippy::cast_possible_truncation)]
+    // Bounded by the assertion above.
     let signature = sig::sign(seed, height, nonce as u32, &msg);
     Transaction {
         from,
@@ -124,5 +158,21 @@ mod tests {
         // Same signature, lie about the nonce.
         tx.nonce = 2;
         assert!(!tx.verify_signature());
+    }
+
+    #[test]
+    fn tx_bytes_round_trip() {
+        let seed = [15u8; 32];
+        let from = compute_root(&seed, 4);
+        let tx = build_signed(&seed, 4, from, [3u8; 32], 77, 3, 2);
+        let bytes = tx.to_bytes();
+        let back = Transaction::from_bytes(&bytes).unwrap();
+        assert_eq!(back, tx);
+        assert!(back.verify_signature());
+        assert_eq!(back.id(), tx.id());
+        // Truncation never parses.
+        for cut in 0..bytes.len() {
+            assert!(Transaction::from_bytes(&bytes[..cut]).is_none(), "cut at {cut}");
+        }
     }
 }

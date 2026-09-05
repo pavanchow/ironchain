@@ -1,5 +1,11 @@
-//! Correctness gates 2 to 4: signatures, Merkle inclusion, and fork choice.
-//! Bounded for CI, seed/size controllable via IRONCHAIN_FUZZ_OPS / IRONCHAIN_SEED.
+//! Correctness gates 2 to 6: signatures, Merkle inclusion, fork choice,
+//! retarget consistency, and signature malleability.
+//! Bounded for CI, seed and size controllable via `IRONCHAIN_FUZZ_OPS` and
+//! `IRONCHAIN_SEED`.
+
+// Scale parameters arrive from the environment as u64 and feed bounded loop
+// counts, indices, and PRNG draws, so narrowing casts are safe.
+#![allow(clippy::cast_possible_truncation)]
 
 use ironchain::block::{Block, Header};
 use ironchain::chain::{validate_chain, Blockchain, Config};
@@ -29,7 +35,7 @@ fn signature_round_trip_and_bit_flips() {
     let address = compute_root(&key_seed, height);
     let leaf_budget = 1u32 << height;
 
-    for i in 0..ops.min(leaf_budget as u64) {
+    for i in 0..ops.min(u64::from(leaf_budget)) {
         let mut msg_src = [0u8; 32];
         rng.fill(&mut msg_src);
         let msg = sha256(&msg_src);
@@ -105,6 +111,33 @@ fn merkle_inclusion_random_sizes() {
                 !merkle::verify(&root, &outsider, &proof),
                 "non-included leaf verified at size {n} idx {i}"
             );
+
+            // A proof with one flipped sibling hash must fail.
+            let mut bad = proof.clone();
+            let sib = bad.siblings.len();
+            if sib > 0 {
+                bad.siblings[sib - 1].0[0] ^= 0x01;
+                assert!(
+                    !merkle::verify(&root, &leaves[i], &bad),
+                    "flipped sibling verified at size {n} idx {i}"
+                );
+            }
+
+            // A proof whose sibling sides are all swapped must fail for any
+            // multi-leaf tree with random leaves: the fold order is part of
+            // the commitment. (The duplicated last leaf of an odd-sized level
+            // is side-insensitive at its own level, but every level above it
+            // still differs.)
+            if n > 1 {
+                let mut swapped = proof.clone();
+                for s in &mut swapped.siblings {
+                    s.1 = !s.1;
+                }
+                assert!(
+                    !merkle::verify(&root, &leaves[i], &swapped),
+                    "side-swapped proof verified at size {n} idx {i}"
+                );
+            }
         }
     }
 }
@@ -189,4 +222,108 @@ fn lighter_branch_does_not_reorg() {
     let res = bc.add_block(lone).unwrap();
     assert!(!res.became_tip);
     assert_eq!(bc.best_tip, tip);
+}
+
+// ---- Gate 5: retarget consistency between the two validators ---------------
+
+#[test]
+fn retargeted_chain_accepted_by_full_validator() {
+    // The incremental validator (add_block / mine_next) and the full-chain
+    // validator (validate_chain) must measure the retarget timespan over the
+    // same anchor block. These timestamps put the decision boundary between
+    // the two anchors, which exposed an anchor mismatch that made
+    // validate_chain reject chains mined by the node itself.
+    let cfg = Config {
+        genesis_difficulty: 8,
+        subsidy: 50,
+        retarget_interval: 8,
+        target_spacing: 10,
+    };
+    let mut bc = Blockchain::new(cfg.clone(), vec![], 0);
+    for _h in 1..=16u64 {
+        // Every block sits at ts 40. At height 8 the parent-to-anchor span is
+        // 40 (keep, in [35, 140]). At height 16 the anchor is block 8, so the
+        // span reads 0 (raise). The pre-fix full validator anchored height 8
+        // one block deeper, read 0, expected 9 bits, and rejected this chain.
+        bc.mine_next([9u8; 32], 40).unwrap();
+    }
+    let chain = bc.best_chain();
+    assert_eq!(chain[8].header.difficulty_bits, 8, "span 40 must keep 8 bits");
+    assert_eq!(chain[16].header.difficulty_bits, 9, "span 0 must raise to 9 bits");
+    let st = validate_chain(&cfg, &[], &chain)
+        .unwrap_or_else(|e| panic!("the node's own chain must revalidate: {e}"));
+    assert_eq!(st, bc.state(), "recomputed state must match the node state");
+}
+
+#[test]
+fn retarget_rises_on_fast_and_falls_on_slow_chains() {
+    let fast_cfg = Config {
+        genesis_difficulty: 4,
+        subsidy: 50,
+        retarget_interval: 4,
+        target_spacing: 10,
+    };
+    // Fast chain: timespan far below half the expected spacing raises a bit.
+    let mut bc = Blockchain::new(fast_cfg.clone(), vec![], 0);
+    for h in 1..=4u64 {
+        bc.mine_next([1u8; 32], h).unwrap();
+    }
+    assert_eq!(bc.best_chain()[4].header.difficulty_bits, 5, "fast span must raise");
+    validate_chain(&fast_cfg, &[], &bc.best_chain()).unwrap();
+
+    // Slow chain: timespan far above double the expected spacing lowers a bit.
+    let slow_cfg = Config {
+        genesis_difficulty: 4,
+        subsidy: 50,
+        retarget_interval: 4,
+        target_spacing: 10,
+    };
+    let mut bc = Blockchain::new(slow_cfg.clone(), vec![], 0);
+    for h in 1..=4u64 {
+        bc.mine_next([1u8; 32], h * 1000).unwrap();
+    }
+    assert_eq!(bc.best_chain()[4].header.difficulty_bits, 3, "slow span must lower");
+    validate_chain(&slow_cfg, &[], &bc.best_chain()).unwrap();
+}
+
+// ---- Gate 6: signature malleability ----------------------------------------
+
+#[test]
+fn signature_malleability_full_sweep() {
+    // Every single bit of every signature region is flipped in turn and must
+    // fail verification. This is the exhaustive form of the bit-flip check:
+    // reveals, complements, the authentication path, and the leaf index.
+    let height = 3u32;
+    let key_seed = [0x7du8; 32];
+    let address = compute_root(&key_seed, height);
+    let msg = sha256(b"malleability sweep message");
+    let base = sign(&key_seed, height, 0, &msg);
+
+    for i in 0..256usize {
+        for bit in 0u8..8 {
+            let mut sig = base.clone();
+            sig.reveals[i][0] ^= 1 << bit;
+            assert!(!verify(&address, &msg, &sig), "reveals[{i}] bit {bit}");
+
+            let mut sig = base.clone();
+            sig.complements[i][0] ^= 1 << bit;
+            assert!(!verify(&address, &msg, &sig), "complements[{i}] bit {bit}");
+        }
+    }
+    let auth_len = base.auth_path.len();
+    for i in 0..auth_len {
+        for bit in 0u8..8 {
+            let mut bad = base.clone();
+            bad.auth_path[i][0] ^= 1 << bit;
+            assert!(!verify(&address, &msg, &bad), "auth_path[{i}] bit {bit}");
+        }
+    }
+    // A different leaf index with genuine leaf-0 material must fail, as must a
+    // truncated authentication path.
+    let mut wrong_index = base.clone();
+    wrong_index.index = 1;
+    assert!(!verify(&address, &msg, &wrong_index));
+    let mut truncated = base;
+    truncated.auth_path.truncate(auth_len - 1);
+    assert!(!verify(&address, &msg, &truncated));
 }

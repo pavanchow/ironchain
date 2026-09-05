@@ -4,8 +4,21 @@
 //! full-chain validation ACCEPTS it. Then, for every mutable field, mutate one
 //! copy and assert validation REJECTS it. Valid accepts, any tamper rejects.
 //!
-//! Size and seed are controllable: IRONCHAIN_FUZZ_OPS (blocks to build) and
-//! IRONCHAIN_SEED. Defaults are bounded for CI.
+//! Size and seed are controllable: `IRONCHAIN_FUZZ_OPS` (blocks to build) and
+//! `IRONCHAIN_SEED`. Defaults are bounded for CI. At large values the
+//! one-time-key budget of the fixture wallets grows with the requested block
+//! count (capped at tree height 8), so long chains keep carrying transactions
+//! instead of draining the key budget after a handful of blocks.
+//!
+//! The fixture is expensive at scale, so it is built once per process and
+//! shared by every test below. Each test still mutates its own copy of the
+//! chain and runs its own full validation.
+
+// Scale parameters arrive from the environment as u64 and feed bounded loop
+// counts, indices, and PRNG draws, so narrowing casts are safe.
+#![allow(clippy::cast_possible_truncation)]
+
+use std::sync::OnceLock;
 
 use ironchain::block::{meets_target, Block};
 use ironchain::chain::{validate_chain, Blockchain, Config};
@@ -14,6 +27,7 @@ use ironchain::sig::compute_root;
 use ironchain::tx::{build_signed, Address};
 
 const WALLET_HEIGHT: u32 = 4;
+const MAX_WALLET_HEIGHT: u32 = 8;
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -28,6 +42,12 @@ struct Fixture {
     chain: Vec<Block>,
 }
 
+static FIXTURE: OnceLock<Fixture> = OnceLock::new();
+
+fn fixture() -> &'static Fixture {
+    FIXTURE.get_or_init(build_fixture)
+}
+
 fn build_fixture() -> Fixture {
     let blocks = env_u64("IRONCHAIN_FUZZ_OPS", 6).max(2);
     let seed = env_u64("IRONCHAIN_SEED", 12345);
@@ -39,6 +59,14 @@ fn build_fixture() -> Fixture {
         target_spacing: 10,
     };
 
+    // Grow the one-time-key budget with the requested scale: each wallet needs
+    // on the order of `blocks` leaves to keep two transactions per block flowing
+    // through the whole run. Height 4 matches the historical CI fixture.
+    let mut wallet_height = WALLET_HEIGHT;
+    while (1u64 << wallet_height) < blocks && wallet_height < MAX_WALLET_HEIGHT {
+        wallet_height += 1;
+    }
+
     // Four funded wallets so we can keep sending within the one-time-key budget.
     let seeds: Vec<[u8; 32]> = (0..4u8)
         .map(|i| {
@@ -49,13 +77,16 @@ fn build_fixture() -> Fixture {
             s
         })
         .collect();
-    let addrs: Vec<Address> = seeds.iter().map(|s| compute_root(s, WALLET_HEIGHT)).collect();
+    let addrs: Vec<Address> = seeds
+        .iter()
+        .map(|s| compute_root(s, wallet_height))
+        .collect();
     let allocations: Vec<(Address, u64)> = addrs.iter().map(|a| (*a, 100_000)).collect();
 
     let mut bc = Blockchain::new(config.clone(), allocations.clone(), 0);
     let mut rng = Rng::new(seed);
     let mut nonces = [0u64; 4];
-    let leaf_budget = 1u64 << WALLET_HEIGHT;
+    let leaf_budget = 1u64 << wallet_height;
 
     for _ in 0..blocks {
         for _ in 0..2 {
@@ -71,7 +102,7 @@ fn build_fixture() -> Fixture {
             let fee = rng.below(4);
             let tx = build_signed(
                 &seeds[from_i],
-                WALLET_HEIGHT,
+                wallet_height,
                 addrs[from_i],
                 addrs[to_i],
                 amount,
@@ -107,9 +138,9 @@ fn accepts(f: &Fixture, chain: &[Block]) -> bool {
 
 #[test]
 fn honest_chain_is_accepted() {
-    let f = build_fixture();
+    let f = fixture();
     assert!(
-        accepts(&f, &f.chain),
+        accepts(f, &f.chain),
         "the honest chain must validate: {:?}",
         validate_chain(&f.config, &f.allocations, &f.chain).err()
     );
@@ -118,61 +149,70 @@ fn honest_chain_is_accepted() {
 
 #[test]
 fn tamper_tx_amount_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let bi = first_tx_block(&f.chain);
     let mut c = f.chain.clone();
     c[bi].transactions[0].amount += 1;
-    assert!(!accepts(&f, &c), "mutating a tx amount must be rejected");
+    assert!(!accepts(f, &c), "mutating a tx amount must be rejected");
+}
+
+#[test]
+fn tamper_tx_fee_rejected() {
+    let f = fixture();
+    let bi = first_tx_block(&f.chain);
+    let mut c = f.chain.clone();
+    c[bi].transactions[0].fee += 1;
+    assert!(!accepts(f, &c), "mutating a tx fee must be rejected");
 }
 
 #[test]
 fn tamper_tx_signature_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let bi = first_tx_block(&f.chain);
     let mut c = f.chain.clone();
     c[bi].transactions[0].signature.reveals[0][0] ^= 0x80;
-    assert!(!accepts(&f, &c), "mutating a tx signature must be rejected");
+    assert!(!accepts(f, &c), "mutating a tx signature must be rejected");
 }
 
 #[test]
 fn tamper_tx_sender_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let bi = first_tx_block(&f.chain);
     let mut c = f.chain.clone();
     c[bi].transactions[0].from[0] ^= 0x01;
-    assert!(!accepts(&f, &c), "mutating a tx sender must be rejected");
+    assert!(!accepts(f, &c), "mutating a tx sender must be rejected");
 }
 
 #[test]
 fn tamper_tx_nonce_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let bi = first_tx_block(&f.chain);
     let mut c = f.chain.clone();
     c[bi].transactions[0].nonce = c[bi].transactions[0].nonce.wrapping_add(1);
-    assert!(!accepts(&f, &c), "mutating a tx nonce must be rejected");
+    assert!(!accepts(f, &c), "mutating a tx nonce must be rejected");
 }
 
 #[test]
 fn tamper_merkle_root_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let bi = first_tx_block(&f.chain);
     let mut c = f.chain.clone();
     c[bi].header.merkle_root[0] ^= 0x01;
-    assert!(!accepts(&f, &c), "mutating the merkle root must be rejected");
+    assert!(!accepts(f, &c), "mutating the merkle root must be rejected");
 }
 
 #[test]
 fn tamper_parent_hash_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let mut c = f.chain.clone();
     // Any non-genesis block.
     c[1].header.parent_hash[0] ^= 0x01;
-    assert!(!accepts(&f, &c), "mutating a parent hash must be rejected");
+    assert!(!accepts(f, &c), "mutating a parent hash must be rejected");
 }
 
 #[test]
 fn tamper_pow_nonce_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let mut c = f.chain.clone();
     // Choose a nonce that fails proof of work on block 1, keeping parent links
     // intact so the rejection is specifically due to proof of work.
@@ -185,29 +225,40 @@ fn tamper_pow_nonce_rejected() {
         }
         cand += 1;
     }
-    assert!(!accepts(&f, &c), "a non-satisfying PoW nonce must be rejected");
+    assert!(!accepts(f, &c), "a non-satisfying PoW nonce must be rejected");
 }
 
 #[test]
 fn tamper_difficulty_rejected() {
-    let f = build_fixture();
+    let f = fixture();
     let mut c = f.chain.clone();
     c[1].header.difficulty_bits += 1;
-    assert!(!accepts(&f, &c), "mutating the difficulty must be rejected");
+    assert!(!accepts(f, &c), "mutating the difficulty must be rejected");
+}
+
+#[test]
+fn tamper_miner_rejected() {
+    let f = fixture();
+    let mut c = f.chain.clone();
+    // Redirecting the coinbase changes the header hash, so the stored PoW no
+    // longer matches, and the reward would land at a different address.
+    c[1].header.miner[0] ^= 0x01;
+    assert!(!accepts(f, &c), "mutating the miner must be rejected");
 }
 
 #[test]
 fn every_single_field_mutation_rejected() {
+    type Mutation = Box<dyn Fn(&mut Vec<Block>)>;
     // A tighter statement of the whole property in one test: build once, apply
     // each mutation to a fresh copy, and require every one to be rejected while
     // the untouched chain is accepted.
-    let f = build_fixture();
-    assert!(accepts(&f, &f.chain));
+    let f = fixture();
+    assert!(accepts(f, &f.chain));
     let bi = first_tx_block(&f.chain);
 
-    type Mutation = Box<dyn Fn(&mut Vec<Block>)>;
     let mutations: Vec<(&str, Mutation)> = vec![
         ("amount", Box::new(move |c: &mut Vec<Block>| c[bi].transactions[0].amount += 1)),
+        ("fee", Box::new(move |c: &mut Vec<Block>| c[bi].transactions[0].fee += 1)),
         (
             "signature",
             Box::new(move |c: &mut Vec<Block>| c[bi].transactions[0].signature.reveals[1][0] ^= 0x40),
@@ -219,11 +270,28 @@ fn every_single_field_mutation_rejected() {
         ("parent_hash", Box::new(|c: &mut Vec<Block>| c[1].header.parent_hash[3] ^= 0x01)),
         ("timestamp", Box::new(|c: &mut Vec<Block>| c[1].header.timestamp = 0)),
         ("difficulty", Box::new(|c: &mut Vec<Block>| c[1].header.difficulty_bits += 2)),
+        ("miner", Box::new(|c: &mut Vec<Block>| c[1].header.miner[5] ^= 0x01)),
+        (
+            "pow_nonce",
+            Box::new(|c: &mut Vec<Block>| {
+                // Land on a nonce that provably fails the target, so the
+                // mutation always changes the block regardless of the draw.
+                let bits = c[1].header.difficulty_bits;
+                let mut cand = 0u64;
+                loop {
+                    c[1].header.nonce = cand;
+                    if !meets_target(&c[1].hash(), bits) {
+                        break;
+                    }
+                    cand += 1;
+                }
+            }),
+        ),
     ];
 
     for (name, mutate) in mutations {
         let mut c = f.chain.clone();
         mutate(&mut c);
-        assert!(!accepts(&f, &c), "mutation of `{name}` was not rejected");
+        assert!(!accepts(f, &c), "mutation of `{name}` was not rejected");
     }
 }

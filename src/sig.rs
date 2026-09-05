@@ -38,11 +38,14 @@ pub struct Signature {
 
 /// Derive a single Lamport secret: `SK_DOMAIN || seed || leaf || bit_index || side`.
 fn derive_sk(seed: &[u8; 32], leaf: u32, bit_index: usize, side: u8) -> [u8; 32] {
+    #[allow(clippy::cast_possible_truncation)]
+    // Message bits are indexed 0..MSG_BITS = 256, well inside u16.
+    let bit_index = bit_index as u16;
     let mut h = crate::sha256::Sha256::new();
     h.update(SK_DOMAIN);
     h.update(seed);
     h.update(&leaf.to_le_bytes());
-    h.update(&(bit_index as u16).to_le_bytes());
+    h.update(&bit_index.to_le_bytes());
     h.update(&[side]);
     h.finalize()
 }
@@ -73,9 +76,24 @@ fn bit_set(msg: &[u8; 32], i: usize) -> bool {
     (msg[i / 8] >> (7 - (i % 8))) & 1 == 1
 }
 
+/// Largest key-tree height this crate materializes. A height-31 tree already
+/// holds two billion leaves, and signing walks every one of them, so taller
+/// configurations are rejected instead of exhausting memory.
+pub const MAX_TREE_HEIGHT: u32 = 31;
+
 /// Compute all leaf public keys for a tree of the given height.
+///
+/// # Panics
+///
+/// Panics when `height` is above [`MAX_TREE_HEIGHT`].
 fn all_leaves(seed: &[u8; 32], height: u32) -> Vec<[u8; 32]> {
+    assert!(
+        height <= MAX_TREE_HEIGHT,
+        "key tree height above {MAX_TREE_HEIGHT} is infeasible to build"
+    );
     let count = 1usize << height;
+    #[allow(clippy::cast_possible_truncation)]
+    // count <= 2^31, so every index below it fits u32.
     (0..count as u32).map(|l| leaf_public_key(seed, l)).collect()
 }
 
@@ -111,12 +129,19 @@ fn auth_path(seed: &[u8; 32], height: u32, index: u32) -> Vec<[u8; 32]> {
 }
 
 /// Sign a 32-byte digest with leaf `index` of the key tree at `seed`/`height`.
+///
+/// # Panics
+///
+/// Panics when `index` is outside the key tree or the height is above
+/// [`MAX_TREE_HEIGHT`]. Both are wallet-construction errors, not input
+/// errors: exceeding the budget would silently reuse one-time keys.
 pub fn sign(seed: &[u8; 32], height: u32, index: u32, msg: &[u8; 32]) -> Signature {
-    assert!((index as u64) < (1u64 << height), "leaf index out of range");
+    assert!(height <= MAX_TREE_HEIGHT, "key tree height too large");
+    assert!(u64::from(index) < (1u64 << height), "leaf index out of range");
     let mut reveals = Vec::with_capacity(MSG_BITS);
     let mut complements = Vec::with_capacity(MSG_BITS);
     for i in 0..MSG_BITS {
-        let b = bit_set(msg, i) as u8;
+        let b = u8::from(bit_set(msg, i));
         reveals.push(derive_sk(seed, index, i, b));
         complements.push(sha256(&derive_sk(seed, index, i, 1 - b)));
     }
@@ -133,8 +158,15 @@ pub fn verify(address: &[u8; 32], msg: &[u8; 32], sig: &Signature) -> bool {
     if sig.reveals.len() != MSG_BITS || sig.complements.len() != MSG_BITS {
         return false;
     }
+    // A path longer than 63 cannot shift safely and cannot match any tree
+    // this crate can build, so it is rejected before any hashing.
+    if sig.auth_path.len() >= 64 {
+        return false;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    // Bounded by the check above.
     let height = sig.auth_path.len() as u32;
-    if (sig.index as u64) >= (1u64 << height) {
+    if u64::from(sig.index) >= (1u64 << height) {
         return false;
     }
 
@@ -142,7 +174,7 @@ pub fn verify(address: &[u8; 32], msg: &[u8; 32], sig: &Signature) -> bool {
     let mut leaf_hasher = crate::sha256::Sha256::new();
     leaf_hasher.update(&[LEAF_DOMAIN]);
     for i in 0..MSG_BITS {
-        let b = bit_set(msg, i) as u8;
+        let b = u8::from(bit_set(msg, i));
         let revealed_pk = sha256(&sig.reveals[i]);
         let (side0, side1) = if b == 0 {
             (revealed_pk, sig.complements[i])
@@ -169,7 +201,20 @@ pub fn verify(address: &[u8; 32], msg: &[u8; 32], sig: &Signature) -> bool {
 
 impl Signature {
     /// Serialize to bytes: index, sizes, reveals, complements, auth path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the authentication path exceeds 255 entries. Signatures from
+    /// [`sign`] hold at most [`MAX_TREE_HEIGHT`] = 31, and the strict parser
+    /// accepts at most 64, so hand-built oversized signatures are rejected
+    /// rather than serialized corruptly.
+    #[allow(clippy::cast_possible_truncation)]
+    // The assertion above bounds the path length to fit u8.
     pub fn to_bytes(&self) -> Vec<u8> {
+        assert!(
+            self.auth_path.len() <= 255,
+            "authentication path too long to serialize"
+        );
         let mut out = Vec::new();
         out.extend_from_slice(&self.index.to_le_bytes());
         out.push(self.auth_path.len() as u8);
@@ -183,6 +228,42 @@ impl Signature {
             out.extend_from_slice(a);
         }
         out
+    }
+
+    /// Strict inverse of [`Signature::to_bytes`]. The input must have exactly
+    /// the canonical length, all 256 reveals and complements must be present,
+    /// and the authentication path may hold at most 64 siblings. Returns
+    /// `None` on any truncation, trailing bytes, or oversized path, so a
+    /// malformed blob can never yield a signature with a non-canonical shape.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Signature> {
+        use crate::ByteCursor;
+        let mut b = bytes;
+        let index = u32::from_le_bytes(b.take(4)?.try_into().ok()?);
+        let auth_len = b.take(1)?[0] as usize;
+        if auth_len > 64 {
+            return None;
+        }
+        let mut reveals = Vec::with_capacity(MSG_BITS);
+        for _ in 0..MSG_BITS {
+            reveals.push(b.take(32)?.try_into().ok()?);
+        }
+        let mut complements = Vec::with_capacity(MSG_BITS);
+        for _ in 0..MSG_BITS {
+            complements.push(b.take(32)?.try_into().ok()?);
+        }
+        let mut auth_path = Vec::with_capacity(auth_len);
+        for _ in 0..auth_len {
+            auth_path.push(b.take(32)?.try_into().ok()?);
+        }
+        if !b.is_empty() {
+            return None;
+        }
+        Some(Signature {
+            index,
+            reveals,
+            complements,
+            auth_path,
+        })
     }
 }
 
@@ -260,6 +341,34 @@ mod tests {
             let msg = sha256(&idx.to_le_bytes());
             let sig = sign(&s, 3, idx, &msg);
             assert!(verify(&root, &msg, &sig), "leaf {idx} failed");
+        }
+    }
+
+    #[test]
+    fn signature_bytes_round_trip_and_tamper() {
+        let s = seed(13);
+        let msg = sha256(b"serialization test");
+        let sig = sign(&s, 3, 4, &msg);
+        let bytes = sig.to_bytes();
+        let back = Signature::from_bytes(&bytes).unwrap();
+        assert_eq!(back, sig);
+        assert!(verify(&compute_root(&s, 3), &msg, &back));
+
+        // Every single-byte truncation and every single-bit flip must either
+        // fail to parse or fail to verify.
+        for cut in 0..bytes.len() {
+            assert!(Signature::from_bytes(&bytes[..cut]).is_none(), "cut at {cut}");
+        }
+        let mut flipped = bytes.clone();
+        flipped[10] ^= 0x01;
+        match Signature::from_bytes(&flipped) {
+            None => {}
+            Some(parsed) => {
+                assert!(
+                    !verify(&compute_root(&s, 3), &msg, &parsed),
+                    "a tampered signature parsed and verified"
+                );
+            }
         }
     }
 }

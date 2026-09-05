@@ -1,9 +1,9 @@
 //! Deterministic pseudo-random generator, no external crates.
 //!
-//! This is a SplitMix64 generator. It is used only for test data and for the
+//! This is a `SplitMix64` generator. It is used only for test data and for the
 //! demo. Wallet key material is derived from SHA-256, not from this generator.
 
-/// A small deterministic PRNG (SplitMix64).
+/// A small deterministic PRNG (`SplitMix64`).
 pub struct Rng {
     state: u64,
 }
@@ -14,10 +14,18 @@ impl Rng {
     }
 
     pub fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9e3779b97f4a7c15);
+        // Golden-gamma and mixing constants are transcribed verbatim from the
+        // SplitMix64 reference, so no digit separators.
+        #[allow(clippy::unreadable_literal)]
+        const GOLDEN_GAMMA: u64 = 0x9e3779b97f4a7c15;
+        #[allow(clippy::unreadable_literal)]
+        const MIX1: u64 = 0xbf58476d1ce4e5b9;
+        #[allow(clippy::unreadable_literal)]
+        const MIX2: u64 = 0x94d049bb133111eb;
+        self.state = self.state.wrapping_add(GOLDEN_GAMMA);
         let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z = (z ^ (z >> 30)).wrapping_mul(MIX1);
+        z = (z ^ (z >> 27)).wrapping_mul(MIX2);
         z ^ (z >> 31)
     }
 

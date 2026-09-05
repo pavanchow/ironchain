@@ -31,13 +31,12 @@ fn print_block(bc: &Blockchain, block: &Block) {
     );
 }
 
-fn main() {
-    let seed_base: u64 = std::env::var("IRONCHAIN_SEED")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2024);
-
-    // Four wallets, each a hash-based key tree seeded deterministically.
+/// Four wallets whose key material is derived deterministically from the seed.
+/// Only the low bytes of the seed enter the wallet keys, which is fine for a
+/// demo because the keys do not need high entropy to be well formed.
+fn demo_wallets(seed_base: u64) -> (Vec<[u8; 32]>, Vec<Address>) {
+    #[allow(clippy::cast_possible_truncation)]
+    // The demo only narrows a u64 seed into fixed demo key bytes.
     let seeds: Vec<[u8; 32]> = (0..4u8)
         .map(|i| {
             let mut s = [0u8; 32];
@@ -47,39 +46,20 @@ fn main() {
             s
         })
         .collect();
-    let addrs: Vec<Address> = seeds.iter().map(|s| compute_root(s, WALLET_HEIGHT)).collect();
-    let names = ["alice", "bob", "carol", "dave"];
+    let addrs = seeds.iter().map(|s| compute_root(s, WALLET_HEIGHT)).collect();
+    (seeds, addrs)
+}
 
-    println!("Ironchain demo");
-    println!("==============");
-    println!("Wallets (address = Merkle root of a hash-based key tree):");
-    for (i, a) in addrs.iter().enumerate() {
-        println!("  {:<6} {}", names[i], short(a));
-    }
-    println!();
-
-    let config = Config {
-        genesis_difficulty: 12,
-        subsidy: 100,
-        retarget_interval: 0,
-        target_spacing: 10,
-    };
-    // Fund alice at genesis so she can pay the others.
-    let mut bc = Blockchain::new(config.clone(), vec![(addrs[0], 10_000)], 0);
-    println!("Genesis mined:");
-    print_block(&bc, &bc.get_block(&bc.genesis_hash).unwrap().clone());
-    println!();
-
-    let mut rng = Rng::new(seed_base);
+/// Queue two random transfers per block and mine it, returning the attempts.
+#[allow(clippy::cast_possible_truncation)]
+// PRNG draws are bounded to a four-wallet demo and small amounts.
+fn mine_demo_blocks(bc: &mut Blockchain, seeds: &[[u8; 32]], addrs: &[Address], rng: &mut Rng) {
     let mut nonces = [0u64; 4];
-
-    println!("Mining blocks with random valid transactions:");
     let mut total_attempts = 0u64;
     for _ in 0..5 {
-        // Queue a couple of random transfers alice -> someone she can pay.
         for _ in 0..2 {
             let from_i = 0usize; // alice holds the funds in this demo
-            let mut to_i = (rng.below(4)) as usize;
+            let mut to_i = rng.below(4) as usize;
             if to_i == from_i {
                 to_i = (to_i + 1) % 4;
             }
@@ -101,9 +81,44 @@ fn main() {
         let ts = bc.height(&bc.best_tip).unwrap() * 10 + 10;
         let (hash, attempts) = bc.mine_next(addrs[1], ts).unwrap();
         total_attempts += attempts;
-        print_block(&bc, &bc.get_block(&hash).unwrap().clone());
+        print_block(bc, bc.get_block(&hash).unwrap());
     }
     println!("  total hashing attempts across mined blocks: {total_attempts}");
+}
+
+fn main() {
+    let seed_base: u64 = std::env::var("IRONCHAIN_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2024);
+
+    let (seeds, addrs) = demo_wallets(seed_base);
+    let names = ["alice", "bob", "carol", "dave"];
+
+    println!("Ironchain demo");
+    println!("==============");
+    println!("Wallets (address = Merkle root of a hash-based key tree):");
+    for (i, a) in addrs.iter().enumerate() {
+        println!("  {:<6} {}", names[i], short(a));
+    }
+    println!();
+
+    let config = Config {
+        genesis_difficulty: 12,
+        subsidy: 100,
+        retarget_interval: 0,
+        target_spacing: 10,
+    };
+    // Fund alice at genesis so she can pay the others.
+    let mut bc = Blockchain::new(config.clone(), vec![(addrs[0], 10_000)], 0);
+    println!("Genesis mined:");
+    let genesis = bc.get_block(&bc.genesis_hash).unwrap().clone();
+    print_block(&bc, &genesis);
+    println!();
+
+    let mut rng = Rng::new(seed_base);
+    println!("Mining blocks with random valid transactions:");
+    mine_demo_blocks(&mut bc, &seeds, &addrs, &mut rng);
     println!();
 
     println!("Final balances:");
@@ -128,8 +143,7 @@ fn main() {
     // Tamper: bump an amount in the first non-empty block and revalidate.
     let mut tampered = chain.clone();
     let mut done = false;
-    for block in tampered.iter_mut() {
-        let bheight = bc.height(&block.hash()).unwrap_or(0);
+    for (bheight, block) in tampered.iter_mut().enumerate() {
         if let Some(tx) = block.transactions.first_mut() {
             println!(
                 "\nTampering: block #{} tx amount {} -> {}",

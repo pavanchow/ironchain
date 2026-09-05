@@ -36,9 +36,10 @@ pub fn root(leaves: &[[u8; 32]]) -> [u8; 32] {
     }
     let mut level = leaves.to_vec();
     while level.len() > 1 {
-        if !level.len().is_multiple_of(2) {
-            let last = *level.last().unwrap();
-            level.push(last);
+        if let Some(&last) = level.last() {
+            if !level.len().is_multiple_of(2) {
+                level.push(last);
+            }
         }
         let mut next = Vec::with_capacity(level.len() / 2);
         for pair in level.chunks(2) {
@@ -53,7 +54,7 @@ pub fn root(leaves: &[[u8; 32]]) -> [u8; 32] {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proof {
     pub index: usize,
-    /// (sibling_hash, sibling_is_right).
+    /// Tuple of (sibling hash, sibling is on the right).
     pub siblings: Vec<([u8; 32], bool)>,
 }
 
@@ -66,9 +67,10 @@ pub fn prove(leaves: &[[u8; 32]], index: usize) -> Option<Proof> {
     let mut idx = index;
     let mut siblings = Vec::new();
     while level.len() > 1 {
-        if !level.len().is_multiple_of(2) {
-            let last = *level.last().unwrap();
-            level.push(last);
+        if let Some(&last) = level.last() {
+            if !level.len().is_multiple_of(2) {
+                level.push(last);
+            }
         }
         let (sib_idx, sib_is_right) = if idx.is_multiple_of(2) {
             (idx + 1, true)

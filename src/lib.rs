@@ -16,6 +16,11 @@
 //! - [`chain`]: fork choice, reorg, retargeting, mempool, and mining.
 //! - [`rng`]: a deterministic PRNG for tests and the demo.
 
+// Every public function returns a value, so annotating each pure function with
+// `#[must_use]` would add dozens of attributes without changing behavior. The
+// security-critical predicates below are annotated explicitly instead.
+#![allow(clippy::must_use_candidate)]
+
 pub mod block;
 pub mod chain;
 pub mod merkle;
@@ -26,3 +31,21 @@ pub mod state;
 pub mod tx;
 
 pub use sha256::{sha256, sha256d, to_hex};
+
+/// Byte-cursor helper for strict deserialization: take `n` bytes off the front
+/// of a slice, or `None` when the slice is too short. Checking the length
+/// before slicing keeps every parser overflow-free.
+pub(crate) trait ByteCursor {
+    fn take(&mut self, n: usize) -> Option<&[u8]>;
+}
+
+impl ByteCursor for &[u8] {
+    fn take(&mut self, n: usize) -> Option<&[u8]> {
+        if self.len() < n {
+            return None;
+        }
+        let (head, rest) = self.split_at(n);
+        *self = rest;
+        Some(head)
+    }
+}

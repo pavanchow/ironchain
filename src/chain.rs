@@ -74,6 +74,10 @@ pub struct Blockchain {
     pub allocations: Vec<(Address, u64)>,
     blocks: HashMap<[u8; 32], Block>,
     meta: HashMap<[u8; 32], Meta>,
+    /// World state after the current best tip. The invariant
+    /// `tip_state == state_at(best_tip)` is maintained on every tip change,
+    /// which keeps block connection linear instead of quadratic.
+    tip_state: State,
     pub genesis_hash: [u8; 32],
     pub best_tip: [u8; 32],
     pub mempool: Vec<Transaction>,
@@ -87,13 +91,27 @@ pub struct AddResult {
     pub reorged: bool,
 }
 
+// The cap of 127 keeps `block_work` inside `u128`; see `block_work` for the
+// saturated behavior above that. The value is clamped to 1..=127 before the
+// cast, so the cast is lossless.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn clamp_bits(bits: i64) -> u32 {
-    bits.clamp(1, 240) as u32
+    bits.clamp(1, 127) as u32
 }
 
 impl Blockchain {
     /// Create a chain with a mined genesis block.
+    ///
+    /// The genesis difficulty is clamped to at most 127 bits because a block's
+    /// work is `2^difficulty_bits` accumulated in a `u128`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the freshly mined genesis block fails to apply, which cannot
+    /// happen because a genesis with no transactions always applies.
     pub fn new(config: Config, allocations: Vec<(Address, u64)>, genesis_timestamp: u64) -> Self {
+        let mut config = config;
+        config.genesis_difficulty = config.genesis_difficulty.min(127);
         let mut header = Header {
             parent_hash: [0u8; 32],
             merkle_root: merkle::EMPTY_ROOT,
@@ -110,7 +128,7 @@ impl Blockchain {
         let ghash = genesis.hash();
         let mut blocks = HashMap::new();
         let mut meta = HashMap::new();
-        blocks.insert(ghash, genesis);
+        blocks.insert(ghash, genesis.clone());
         meta.insert(
             ghash,
             Meta {
@@ -118,11 +136,16 @@ impl Blockchain {
                 cum_work: block_work(config.genesis_difficulty),
             },
         );
+        let mut tip_state = State::with_allocations(&allocations);
+        tip_state
+            .apply_block(&genesis, config.subsidy)
+            .expect("the mined genesis block always applies");
         Blockchain {
             config,
             allocations,
             blocks,
             meta,
+            tip_state,
             genesis_hash: ghash,
             best_tip: ghash,
             mempool: Vec::new(),
@@ -172,6 +195,10 @@ impl Blockchain {
     }
 
     /// Expected difficulty for the child of `parent_hash`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `parent_hash` is not a known block.
     pub fn expected_difficulty(&self, parent_hash: &[u8; 32]) -> u32 {
         let pm = self.meta[parent_hash];
         let parent = &self.blocks[parent_hash];
@@ -183,11 +210,16 @@ impl Blockchain {
         }
         let anchor = self.ancestor(parent_hash, interval - 1);
         let actual = parent.header.timestamp.saturating_sub(anchor.header.timestamp);
-        let expected = self.config.target_spacing * (interval - 1);
+        let expected = self.config.target_spacing.saturating_mul(interval - 1);
         retarget(parent_bits, actual, expected)
     }
 
     /// World state after replaying the branch ending at `tip`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a stored block fails to apply. Every block is fully validated
+    /// before it is stored, so this only fires on an internal invariant break.
     pub fn state_at(&self, tip: &[u8; 32]) -> State {
         let mut st = State::with_allocations(&self.allocations);
         for block in self.chain_to(tip) {
@@ -197,12 +229,19 @@ impl Blockchain {
         st
     }
 
-    /// World state at the current best tip.
+    /// World state at the current best tip. This is the cached tip state, kept
+    /// equal to `state_at(best_tip)` by construction on every tip change.
     pub fn state(&self) -> State {
-        self.state_at(&self.best_tip)
+        self.tip_state.clone()
     }
 
     /// Validate and connect a block. On success, updates fork choice.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first failed rule: unknown parent, broken link, missing
+    /// proof of work, wrong Merkle root, wrong difficulty, non-monotonic
+    /// timestamp, or an invalid state transition.
     pub fn add_block(&mut self, block: Block) -> Result<AddResult, ChainError> {
         let ph = block.header.parent_hash;
         let pm = *self.meta.get(&ph).ok_or(ChainError::UnknownParent)?;
@@ -228,13 +267,20 @@ impl Blockchain {
             return Err(ChainError::NonMonotonicTimestamp);
         }
 
-        // State-transition validity, applied on the parent's state.
-        let mut st = self.state_at(&ph);
+        // State-transition validity, applied on the parent's state. On the
+        // linear path (parent is the current tip) the cached tip state is used,
+        // which keeps connection cost per block independent of chain length.
+        // Fork parents fall back to a full replay.
+        let mut st = if ph == self.best_tip {
+            self.tip_state.clone()
+        } else {
+            self.state_at(&ph)
+        };
         st.apply_block(&block, self.config.subsidy)
             .map_err(ChainError::State)?;
 
         let height = pm.height + 1;
-        let cum_work = pm.cum_work + block_work(block.header.difficulty_bits);
+        let cum_work = pm.cum_work.saturating_add(block_work(block.header.difficulty_bits));
         let hash = block.hash();
         self.blocks.insert(hash, block);
         self.meta.insert(hash, Meta { height, cum_work });
@@ -247,6 +293,8 @@ impl Blockchain {
             became_tip = true;
             reorged = ph != old_tip;
             self.best_tip = hash;
+            // The state we just validated is exactly the state after the new tip.
+            self.tip_state = st;
         }
         Ok(AddResult {
             hash,
@@ -279,6 +327,11 @@ impl Blockchain {
     /// Assemble, mine, connect a block on the current tip, and clear the
     /// included transactions from the mempool. Returns the block hash and the
     /// number of hashing attempts.
+    ///
+    /// # Errors
+    ///
+    /// Forwards [`ChainError::BadDifficulty`] and every other rule failure
+    /// from [`Blockchain::add_block`].
     pub fn mine_next(
         &mut self,
         miner: Address,
@@ -306,46 +359,62 @@ impl Blockchain {
             transactions: txs.clone(),
         };
         let result = self.add_block(block)?;
-        let included: std::collections::HashSet<[u8; 32]> = txs.iter().map(|t| t.id()).collect();
+        let included: std::collections::HashSet<[u8; 32]> = txs.iter().map(Transaction::id).collect();
         self.mempool.retain(|t| !included.contains(&t.id()));
         Ok((result.hash, attempts))
     }
 }
 
 /// Adjust difficulty bits given the actual and expected timespans, clamped to a
-/// single bit of change per retarget.
+/// single bit of change per retarget. The upper clamp of 127 keeps work inside
+/// `u128`; the lower clamp of 1 keeps the chain from stalling at zero.
 fn retarget(parent_bits: u32, actual: u64, expected: u64) -> u32 {
     if expected == 0 {
         return parent_bits;
     }
     if actual < expected / 2 {
-        clamp_bits(parent_bits as i64 + 1)
-    } else if actual > expected * 2 {
-        clamp_bits(parent_bits as i64 - 1)
+        clamp_bits(i64::from(parent_bits) + 1)
+    } else if actual > expected.saturating_mul(2) {
+        clamp_bits(i64::from(parent_bits) - 1)
     } else {
         parent_bits
     }
 }
 
 /// Difficulty expected for the block at position `i` of a linear chain.
+///
+/// The anchor block is `i - interval`, exactly matching the incremental
+/// validator: the parent sits at height `i - 1` and the incremental validator
+/// walks `interval - 1` more links, so both measure the timespan over the same
+/// `interval - 1` block gaps that `expected` assumes. Getting this anchor wrong
+/// by even one block makes the two validators disagree at retarget boundaries.
 fn expected_bits_linear(chain: &[Block], i: usize, cfg: &Config) -> u32 {
     let parent_bits = chain[i - 1].header.difficulty_bits;
     let interval = cfg.retarget_interval;
     if interval == 0 || !(i as u64).is_multiple_of(interval) {
         return parent_bits;
     }
-    let anchor = i - (interval as usize - 1);
+    let interval_usize = usize::try_from(interval).unwrap_or(usize::MAX);
+    if i < interval_usize {
+        return parent_bits;
+    }
+    let anchor = i - interval_usize;
     let actual = chain[i - 1]
         .header
         .timestamp
         .saturating_sub(chain[anchor].header.timestamp);
-    let expected = cfg.target_spacing * (interval - 1);
+    let expected = cfg.target_spacing.saturating_mul(interval - 1);
     retarget(parent_bits, actual, expected)
 }
 
 /// Validate an explicit linear chain (genesis first) from scratch and return the
 /// resulting world state. This is the full-chain validator used by the tamper
 /// oracle: it re-derives every check rather than trusting stored metadata.
+///
+/// # Errors
+///
+/// Returns [`ChainError::EmptyChain`] or [`ChainError::BadGenesis`] for a
+/// malformed head, and the first per-block rule failure afterwards.
 pub fn validate_chain(
     cfg: &Config,
     allocations: &[(Address, u64)],
@@ -356,6 +425,11 @@ pub fn validate_chain(
     }
     let genesis = &chain[0];
     if genesis.header.parent_hash != [0u8; 32] {
+        return Err(ChainError::BadGenesis);
+    }
+    if genesis.header.difficulty_bits != cfg.genesis_difficulty {
+        // The genesis difficulty is a config constant. A chain that swaps in an
+        // easier genesis (and re-mines the rest at low difficulty) is invalid.
         return Err(ChainError::BadGenesis);
     }
     if !genesis.pow_valid() || !genesis.merkle_root_valid() {

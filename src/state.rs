@@ -29,6 +29,7 @@ pub enum StateError {
     WrongNonce { expected: u64, got: u64 },
     InsufficientBalance { need: u64, have: u64 },
     AmountOverflow,
+    FeeOverflow,
 }
 
 impl std::fmt::Display for StateError {
@@ -42,6 +43,7 @@ impl std::fmt::Display for StateError {
                 write!(f, "insufficient balance, need {need} have {have}")
             }
             StateError::AmountOverflow => write!(f, "amount plus fee overflowed"),
+            StateError::FeeOverflow => write!(f, "block fee total or reward overflowed"),
         }
     }
 }
@@ -67,11 +69,11 @@ impl State {
     }
 
     pub fn balance(&self, addr: &Address) -> u64 {
-        self.accounts.get(addr).map(|a| a.balance).unwrap_or(0)
+        self.accounts.get(addr).map_or(0, |a| a.balance)
     }
 
     pub fn nonce(&self, addr: &Address) -> u64 {
-        self.accounts.get(addr).map(|a| a.nonce).unwrap_or(0)
+        self.accounts.get(addr).map_or(0, |a| a.nonce)
     }
 
     fn entry(&mut self, addr: &Address) -> &mut Account {
@@ -80,9 +82,21 @@ impl State {
 
     /// Apply a whole block: coinbase reward plus every transaction, in order.
     /// The miner collects the fixed subsidy plus all transaction fees.
+    ///
+    /// The fee total is computed with checked arithmetic before anything is
+    /// applied, so a block whose fees or reward overflow `u64` is rejected with
+    /// [`StateError::FeeOverflow`] instead of panicking or wrapping silently.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first failing rule across the coinbase and every
+    /// transaction, and applies nothing when any transaction fails.
     pub fn apply_block(&mut self, block: &Block, subsidy: u64) -> Result<(), StateError> {
-        let total_fees: u64 = block.transactions.iter().map(|t| t.fee).sum();
-        let reward = subsidy.saturating_add(total_fees);
+        let mut total_fees: u64 = 0;
+        for tx in &block.transactions {
+            total_fees = total_fees.checked_add(tx.fee).ok_or(StateError::FeeOverflow)?;
+        }
+        let reward = subsidy.checked_add(total_fees).ok_or(StateError::FeeOverflow)?;
         {
             let miner = self.entry(&block.header.miner);
             miner.balance = miner.balance.saturating_add(reward);
@@ -94,6 +108,11 @@ impl State {
     }
 
     /// Apply a single transaction with full validation.
+    ///
+    /// # Errors
+    ///
+    /// Bad signature, wrong nonce, insufficient balance, or amount-plus-fee
+    /// overflow. The state is left untouched on any error.
     pub fn apply_tx(&mut self, tx: &crate::tx::Transaction) -> Result<(), StateError> {
         if !tx.verify_signature() {
             return Err(StateError::BadSignature);
@@ -171,5 +190,46 @@ mod tests {
             state.apply_tx(&tx),
             Err(StateError::WrongNonce { .. })
         ));
+    }
+
+    #[test]
+    fn block_with_overflowing_fee_total_is_rejected_not_panicking() {
+        // Two transactions whose fees sum above u64::MAX. The fee total is
+        // computed before any signature or balance check, so this must return
+        // an error rather than panic (the pre-fix behavior in debug builds).
+        let mut header = crate::block::Header {
+            parent_hash: [0u8; 32],
+            merkle_root: [0u8; 32],
+            timestamp: 0,
+            difficulty_bits: 1,
+            miner: [9u8; 32],
+            nonce: 0,
+        };
+        crate::block::mine(&mut header);
+        let mk_tx = |fee: u64, nonce: u64| crate::tx::Transaction {
+            from: [1u8; 32],
+            to: [2u8; 32],
+            amount: 0,
+            fee,
+            nonce,
+            signature: crate::sig::Signature {
+                index: 0,
+                reveals: vec![[0u8; 32]; 256],
+                complements: vec![[0u8; 32]; 256],
+                auth_path: vec![],
+            },
+        };
+        let block = Block {
+            header,
+            transactions: vec![mk_tx(u64::MAX, 0), mk_tx(1, 1)],
+        };
+        let mut state = State::new();
+        assert_eq!(state.apply_block(&block, 50), Err(StateError::FeeOverflow));
+        // A fee total that fits but overflows only with the subsidy is rejected too.
+        let block = Block {
+            header: block.header,
+            transactions: vec![mk_tx(u64::MAX - 49, 0)],
+        };
+        assert_eq!(state.apply_block(&block, 50), Err(StateError::FeeOverflow));
     }
 }
