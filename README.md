@@ -31,7 +31,7 @@ The demo mines a short chain with random valid transactions, prints the blocks a
 The crate is a library plus a binary. Core modules:
 
 - `sha256`: `sha256(bytes)`, `sha256d(bytes)`, and a streaming `Sha256` hasher.
-- `sig`: `compute_root(seed, height)` derives an address, `sign(seed, height, index, msg)` produces a `Signature`, and `verify(address, msg, sig)` checks it. Signatures serialize and reparse strictly.
+- `sig`: `compute_root(seed, height)` derives an address, `sign(seed, height, index, msg)` produces a `Signature`, and `verify(address, msg, sig)` checks it. Signatures serialize and reparse strictly. Derived leaf keys are memoized per wallet, so repeated signing from one wallet costs one tree derivation total rather than one per signature.
 - `merkle`: `root(leaves)`, `prove(leaves, index)`, and `verify(root, leaf, proof)`.
 - `tx`: `Transaction`, `build_signed(...)`, `verify_signature()`, and strict `from_bytes`.
 - `block`: `Header`, `Block`, `mine(header)`, `meets_target(hash, bits)`, and strict header deserialization.
@@ -82,7 +82,7 @@ Light-client proofs carry their own tests in `src/spv.rs`: proofs verify for inc
 
 `tests/soak.rs` is the long-horizon gate. Run `IRONCHAIN_SOAK=1 cargo test --release --test soak` to mine hundreds of blocks while a rival miner repeatedly forks three blocks back and overtakes the chain, with the state revalidated against an independent recomputation after every round.
 
-The tamper oracle and the gates are bounded for CI but their size and seed are controllable. Set `IRONCHAIN_FUZZ_OPS` to build a longer chain and `IRONCHAIN_SEED` to change the random draw. At large values the oracle grows its wallets' one-time-key budgets (up to tree height 8) so long chains keep carrying transactions.
+The tamper oracle and the gates are bounded for CI but their size and seed are controllable. Set `IRONCHAIN_FUZZ_OPS` to build a longer chain and `IRONCHAIN_SEED` to change the random draw. At large values the oracle grows its wallets' one-time-key budgets (up to tree height 8) so long chains keep carrying transactions, and its genesis difficulty of 12 makes proof of work the dominant cost, so a max-scale run is a mining and validation stress rather than a fixture-setup benchmark.
 
 ```
 IRONCHAIN_FUZZ_OPS=12 IRONCHAIN_SEED=7 cargo test

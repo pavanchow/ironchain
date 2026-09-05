@@ -41,6 +41,8 @@ One-time discipline. Reusing a leaf for two different messages can reveal secret
 
 Address. An address is the 32-byte Merkle root of a wallet key tree. It is derived by `compute_root(seed, height)` and is deterministic, which the tests pin as a known-answer vector.
 
+Cost. Deriving every leaf public key costs 512 hashes per leaf, so a naive signer would pay a full tree derivation for every signature. The signer memoizes the leaf set per wallet, so a wallet pays one derivation when first used and every later signature adds only its 512 reveal hashes and the height-long authentication path. The memo holds only public values derived from the caller's own seed, so caching cannot mix wallets or leak key material, and a test pins that cached and uncached signing produce byte-identical signatures.
+
 ## Transaction format
 
 A transaction is:
