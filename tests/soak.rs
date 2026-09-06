@@ -3,10 +3,11 @@
 //!
 //! Gated behind `IRONCHAIN_SOAK=1` so ordinary CI runs stay fast. With the
 //! gate set, the soak mines `IRONCHAIN_FUZZ_OPS` (default 300) blocks while a
-//! rival miner repeatedly forks three blocks back and overtakes it, so the
-//! node must reorganize correctly and repeatedly. After every block the world
-//! state is compared against an independent recomputation by the full-chain
-//! validator.
+//! rival miner repeatedly forks three blocks back and out-mines the round's
+//! opening work, so the node must reorganize correctly and repeatedly. After
+//! every round the world state is compared against an independent
+//! recomputation by the full-chain validator, and the retarget rule must be
+//! observed moving in both directions across the final chain.
 
 // Scale parameters arrive from the environment as u64 and feed bounded loop
 // counts, indices, and PRNG draws, so narrowing casts are safe.
@@ -99,21 +100,40 @@ impl Wallets {
     }
 }
 
-/// Fork three blocks back from the current tip and overtake it by one block,
-/// forcing a reorganization. Returns the new rival tip.
-fn overtake_with_rival(bc: &mut Blockchain, rival: Address) -> [u8; 32] {
+/// Fork three blocks back from the current tip and mine on the fork until the
+/// rival's cumulative work exceeds the pre-round tip, which forces a
+/// reorganization. Returns the new rival tip.
+///
+/// Rival timestamps advance one to thirty units past the fork parent's own
+/// timestamp, the same jitter the main branch uses. That keeps the rival branch
+/// monotonic while making its retarget windows straddle the keep band, so the
+/// difficulty rule can lower as well as raise and mean-reverts over a long run.
+/// A rival that always stamped one unit per block could only keep or raise the
+/// difficulty, ratcheting it up until blocks were unmineable and the soak hung.
+fn overtake_with_rival(bc: &mut Blockchain, rival: Address, rng: &mut Rng) -> [u8; 32] {
     let chain = bc.best_chain();
     assert!(chain.len() >= 4);
+    let main_work = bc.cumulative_work(&bc.best_tip).unwrap();
     let fork_base = chain[chain.len() - 4].hash();
     let mut parent = fork_base;
-    for _ in 0..4 {
-        // Rival timestamps march one unit per block from the fork base's own
-        // timestamp, so the rival branch stays monotonic no matter how the
-        // main branch jittered its timestamps.
-        let ts = bc.get_block(&parent).unwrap().header.timestamp + 1;
+    let mut rival_blocks = 0u64;
+    loop {
+        let ts = bc.get_block(&parent).unwrap().header.timestamp + 1 + rng.below(30);
         let child = mine_child(bc, parent, rival, ts);
         let res = bc.add_block(child).unwrap();
         parent = res.hash;
+        rival_blocks += 1;
+        // Three main blocks were added this round, so four rival blocks at the
+        // same difficulty win. If a retarget boundary inside the rival run
+        // lowered its difficulty by a bit, a couple more blocks close the gap,
+        // hence the adaptive loop with a hard cap.
+        if bc.cumulative_work(&parent).unwrap() > main_work {
+            break;
+        }
+        assert!(
+            rival_blocks < 8,
+            "the rival could not overtake within 8 blocks"
+        );
     }
     parent
 }
@@ -158,8 +178,8 @@ fn mining_soak_with_forced_reorgs() {
             mined += 1;
         }
 
-        // Rival: fork three blocks back and overtake by one.
-        let rival_tip = overtake_with_rival(&mut bc, rival);
+        // Rival: fork three blocks back and overtake the round's opening work.
+        let rival_tip = overtake_with_rival(&mut bc, rival, &mut rng);
         mined += 4;
         if bc.cumulative_work(&bc.best_tip).unwrap()
             > bc.cumulative_work(&main_tip_before).unwrap()
@@ -183,9 +203,21 @@ fn mining_soak_with_forced_reorgs() {
     let recomputed = validate_chain(&cfg, &allocations, &final_chain).unwrap();
     assert_eq!(recomputed, bc.state());
     assert!(final_chain.len() >= 2);
+    // The retarget rule must move in both directions over a long run. A
+    // one-sided ratchet would show up here as min == max == genesis difficulty.
+    let mut min_bits = u32::MAX;
+    let mut max_bits = 0u32;
+    for b in &final_chain {
+        min_bits = min_bits.min(b.header.difficulty_bits);
+        max_bits = max_bits.max(b.header.difficulty_bits);
+    }
+    assert!(
+        min_bits < max_bits,
+        "difficulty never moved: ratchet or flatline, min {min_bits} max {max_bits}"
+    );
     println!(
         "soak: {mined} blocks mined, {reorgs} reorgs, {} txs in winning chain, \
-         final height {}",
+         final height {}, difficulty range {min_bits}..{max_bits} bits",
         count_txs(&final_chain),
         bc.height(&bc.best_tip).unwrap()
     );
