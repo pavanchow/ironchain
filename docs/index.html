@@ -6,6 +6,7 @@
 <title>Ironchain: a post-quantum, hash-only proof-of-work blockchain in Rust</title>
 <meta name="description" content="Ironchain by Pavan Nallamothu: a from-scratch proof-of-work blockchain in pure Rust with zero dependencies. Its only primitive is SHA-256, and signatures are hash-based Lamport keys under a Merkle tree, so it is a post-quantum, hash-only chain. Mine real blocks in your browser, tamper with any field and watch the break cascade, then fork the chain and watch a reorg.">
 <meta name="author" content="Pavan Nallamothu (pavanchow)">
+<meta name="keywords" content="proof of work blockchain, Rust blockchain, post-quantum signatures, hash-based signatures, Lamport signatures, XMSS, Merkle tree, SHA-256, from scratch blockchain, zero dependency, SPV light client, fork choice, reorg, difficulty retarget, mempool, Pavan Nallamothu, pavanchow">
 <link rel="canonical" href="https://pavanchow.github.io/ironchain/">
 <link rel="icon" type="image/svg+xml" href="logo.svg">
 <link rel="author" href="https://github.com/pavanchow">
@@ -17,7 +18,7 @@
 <meta name="twitter:title" content="Ironchain: a post-quantum, hash-only proof-of-work blockchain in Rust">
 <meta name="twitter:description" content="Mine blocks, tamper any field and watch the break cascade downstream, then fork the chain and watch a reorg rewrite balances.">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ironchain","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","description":"Ironchain is a from-scratch proof-of-work blockchain in pure Rust with zero external dependencies. The only cryptographic primitive is SHA-256, implemented in the repository, and signatures are hash-based Lamport one-time keys arranged under a Merkle tree (an XMSS-style scheme), making it a post-quantum, hash-only chain. It includes a transaction Merkle tree with inclusion proofs, proof-of-work with difficulty retargeting, an account-model state, a mempool, a miner, and fork choice by most cumulative work with correct reorganization.","url":"https://pavanchow.github.io/ironchain/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/ironchain","license":"https://opensource.org/licenses/MIT"}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ironchain","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","softwareVersion":"0.1.0","description":"Ironchain is a from-scratch proof-of-work blockchain in pure Rust with zero external dependencies. The only cryptographic primitive is SHA-256, implemented in the repository, and signatures are hash-based Lamport one-time keys arranged under a Merkle tree (an XMSS-style scheme), making it a post-quantum, hash-only chain. It includes a transaction Merkle tree with inclusion proofs, proof-of-work with difficulty retargeting, an account-model state, a mempool, a miner, and fork choice by most cumulative work with correct reorganization.","url":"https://pavanchow.github.io/ironchain/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/ironchain","license":"https://opensource.org/licenses/MIT"}
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]}
@@ -159,6 +160,21 @@
 
   footer{padding:60px 0 40px;border-top:1px solid var(--line);text-align:center;color:var(--muted);font-size:15px;margin-top:40px}
   footer .name{color:var(--ink);font-weight:600}footer p+p{margin-top:10px}
+
+  nav .v{color:var(--faint);font-family:var(--mono);font-size:12px}
+  .cmp{max-width:820px;margin:34px auto 0}
+  .cmp .crow{display:grid;grid-template-columns:minmax(160px,1fr) 2fr;gap:14px 34px;padding:22px 0;border-top:1px solid var(--line)}
+  .cmp .crow:first-child{border-top:none}
+  .cmp .crow b{font-size:17px}
+  .cmp .crow p{color:var(--muted);font-size:15px}
+  .cmp .crow code{font-family:var(--mono);font-size:.9em;background:var(--panel);border-radius:4px;padding:.1em .4em}
+  @media(max-width:640px){.cmp .crow{grid-template-columns:1fr;gap:6px}}
+  .pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;max-width:900px;margin:40px auto 0}
+  @media(max-width:640px){.pgrid{grid-template-columns:1fr}}
+  .pcard{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px}
+  .pcard h3{font-family:var(--mono);font-size:14.5px;margin:0 0 8px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .pcard p{color:var(--muted);font-size:14.5px}
+  .ptag{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
 </style>
 </head>
 <body>
@@ -166,7 +182,7 @@
 
 <nav><div class="row">
   <div class="brand"><img src="logo.svg" class="brandlogo" alt="" width="22" height="22">Ironchain</div>
-  <div class="links"><a href="#sim">Playground</a><a href="#proof">Proof</a><a href="#use">Use it</a><a class="gh" href="https://github.com/pavanchow/ironchain">GitHub</a></div>
+  <div class="links"><a href="#sim">Playground</a><a href="#differs">How it differs</a><a href="#primitives">Primitives</a><a href="#proof">Proof</a><a class="gh" href="https://github.com/pavanchow/ironchain">GitHub</a><span class="v">v0.1.0</span></div>
 </div></nav>
 
 <div class="hero">
@@ -347,8 +363,41 @@
   <p class="lead" style="margin-top:26px">The signatures are the different angle: instead of elliptic-curve keys, Ironchain signs with Lamport one-time keys under a Merkle tree, so security rests only on the hardness of reversing or colliding SHA-256. The chain stays secure even against a quantum adversary. The adversarial suite in <code>tests/adversarial.rs</code> states one rule per test, and <code>tests/soak.rs</code> mines hundreds of blocks while a rival miner forks and overtakes.</p>
 </div></section>
 
+<section id="differs"><div class="wrap">
+  <h2>How it differs</h2>
+  <p class="lead">Ironchain is not a new consensus idea. It is the readable, zero-dependency version of ideas that already secure real chains, with one deliberate change at the signature layer.</p>
+  <div class="cmp">
+    <div class="crow"><b>Bitcoin (PoW and Merkle)</b><p>Ironchain echoes the same core: proof-of-work over a block header, a transaction Merkle tree with inclusion proofs, difficulty retargeting, and fork choice by most cumulative work. The difference is scale and intent. Bitcoin is a hardened production network; Ironchain is a single crate you can read in an afternoon.</p></div>
+    <div class="crow"><b>Elliptic-curve chains</b><p>Nearly every chain signs with elliptic-curve keys, which a large quantum computer could break. Ironchain signs with Lamport one-time keys under a Merkle tree, an XMSS-style scheme, so security rests only on the hardness of reversing or colliding SHA-256. It stays secure even against a quantum adversary.</p></div>
+    <div class="crow"><b>Teaching toys</b><p>Most from-scratch blockchains skip the parts that make a chain safe: real signatures, inclusion proofs, retarget consistency, reorg. Ironchain keeps all of them and proves each with a machine-checkable test rather than prose.</p></div>
+  </div>
+  <p class="lead" style="margin-top:22px">The only cryptographic primitive is SHA-256, implemented in the repository. No curves, no external crates, standard library only.</p>
+</div></section>
+
+<section id="primitives"><div class="wrap">
+  <p class="eyebrow" style="text-align:center">The building blocks</p>
+  <h2 style="margin-top:14px">Every primitive a real chain needs, from scratch.</h2>
+  <p class="lead">Each one is implemented in the repository behind no dependency, and each is covered by the correctness gates.</p>
+  <div class="pgrid">
+    <div class="pcard"><h3><span class="ptag">consensus</span> Proof-of-work mining</h3><p>The miner searches for a header nonce whose double SHA-256 hash meets a difficulty target measured in leading zero bits. <code>block::mine</code> and <code>meets_target</code>.</p></div>
+    <div class="pcard"><h3><span class="ptag">consensus</span> Difficulty retarget</h3><p>The target recomputes on a schedule. Gate five confirms the incremental and full-chain validators agree at every retarget boundary, for chains that speed up and slow down.</p></div>
+    <div class="pcard"><h3><span class="ptag">integrity</span> Merkle tree</h3><p>Each block commits to its transactions with a Merkle root. <code>merkle::prove</code> and <code>verify</code> produce and check inclusion proofs across non-power-of-two trees.</p></div>
+    <div class="pcard"><h3><span class="ptag">signatures</span> Lamport under Merkle</h3><p>Hash-based one-time keys arranged under a Merkle key tree, an XMSS-style scheme. Post-quantum, SHA-256 only. Signatures serialize and reparse strictly.</p></div>
+    <div class="pcard"><h3><span class="ptag">mempool</span> Mempool</h3><p>Pending transactions wait in the mempool with projected balances and nonces until a miner includes them in the next block. <code>chain::submit_tx</code>.</p></div>
+    <div class="pcard"><h3><span class="ptag">consensus</span> Fork choice and reorg</h3><p>The node selects the branch with the most cumulative work and reorganizes onto it, recomputing account state to match an independent recomputation on the winner.</p></div>
+    <div class="pcard"><h3><span class="ptag">light client</span> SPV proofs</h3><p>Prove a payment is in a block from just the header and a Merkle path, no chain storage required. <code>spv::prove_tx</code> and <code>verify_spv</code>, with a compact serialization that round trips.</p></div>
+  </div>
+</div></section>
+
 <section id="use"><div class="wrap">
   <h2>Use it</h2>
+  <p class="lead">A library crate plus a binary, standard library only. The same engine backs the demo, the light client, and the gates.</p>
+  <div class="cmp">
+    <div class="crow"><b>Demo binary</b><p><code>./target/release/ironchain</code> mines a short chain with random valid transactions, prints the blocks and balances, then tampers with a transaction and shows validation rejecting it.</p></div>
+    <div class="crow"><b>Library crate</b><p>Modules <code>sha256</code>, <code>sig</code>, <code>merkle</code>, <code>tx</code>, <code>block</code>, <code>state</code>, <code>chain</code>, and <code>spv</code>. Build a <code>Blockchain</code>, <code>submit_tx</code>, <code>mine_next</code>, read <code>state</code>, or check a whole history with <code>validate_chain</code>.</p></div>
+    <div class="crow"><b>SPV light client</b><p><code>spv::prove_tx</code> builds a proof from a block and a transaction index; <code>spv::verify_spv</code> checks a payment with no chain present. Every truncation and non-canonical flag is rejected.</p></div>
+    <div class="crow"><b>Correctness gates</b><p><code>cargo test</code> runs the tamper oracle, six gates, the adversarial suite, and the SPV tests. Env knobs scale the oracle and a soak mines hundreds of blocks under a forking rival.</p></div>
+  </div>
   <pre class="termi"><span class="cm"># build, run the gates, and run the demo binary</span>
 cargo build --release
 cargo test
