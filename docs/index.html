@@ -243,10 +243,10 @@
       <div>
         <h3>Last mine</h3>
         <div class="row" style="gap:10px">
-          <div class="stat"><span class="v" id="statAttempts">—</span><span class="k">Attempts</span></div>
-          <div class="stat"><span class="v" id="statRate">—</span><span class="k">Hashes / s</span></div>
+          <div class="stat"><span class="v" id="statAttempts">...</span><span class="k">Attempts</span></div>
+          <div class="stat"><span class="v" id="statRate">...</span><span class="k">Hashes / s</span></div>
         </div>
-        <div class="stat" style="margin-top:10px;min-width:0"><span class="v" id="statCumWork">—</span><span class="k">Cumulative work</span></div>
+        <div class="stat" style="margin-top:10px;min-width:0"><span class="v" id="statCumWork">...</span><span class="k">Cumulative work</span></div>
       </div>
     </div>
   </section>
@@ -766,8 +766,8 @@ function renderChain(){
     b._new=false;
   });
   cont.scrollLeft=cont.scrollWidth;
-  document.getElementById("statAttempts").textContent=mineStats.attempts||"—";
-  document.getElementById("statRate").textContent=mineStats.rate||"—";
+  document.getElementById("statAttempts").textContent=mineStats.attempts||"...";
+  document.getElementById("statRate").textContent=mineStats.rate||"...";
   document.getElementById("statCumWork").textContent=cumulativeWork(bc.chain).toLocaleString();
 }
 function onChainEdit(e){
@@ -860,7 +860,7 @@ function testFakeTx(){
   const ok=verifyProof(fakeLeaf,proof,root);
   renderMerkleTree(false,-1);
   vd.innerHTML="Non-included tx <span class='mono'>"+fakeLeaf.slice(0,16)+"…</span> against root <span class='mono'>"+root.slice(0,12)+"…</span>: <span class='tag "+(ok?"ok":"bad")+"'>"+(ok?"unexpectedly INCLUDED":"REJECTED ✓")+"</span>";
-  pf.innerHTML="<div class='desc'>A transaction that was never in this block cannot produce a path to the committed root, so verification fails — exactly what a light client relies on.</div>";
+  pf.innerHTML="<div class='desc'>A transaction that was never in this block cannot produce a path to the committed root, so verification fails, exactly what a light client relies on.</div>";
 }
 
 function renderAll(){
