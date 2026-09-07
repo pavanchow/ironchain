@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
 <title>Ironchain — Proof-of-Work Blockchain Playground</title>
 <style>
   :root{
@@ -159,6 +160,7 @@
 <div class="wrap">
 
   <header class="hero">
+    <img src="logo.svg" alt="Ironchain logo" width="72" height="72">
     <h1>Ironchain</h1>
     <p class="sub">A from-scratch, proof-of-work blockchain you can run in your browser. Mine real blocks, tamper with history, watch it break, then fork the chain and watch a reorg rewrite the balances. Everything below runs live in pure JavaScript — SHA-256 and all.</p>
     <div class="repo"><a href="https://github.com/pavanchow/ironchain">View the Rust engine on GitHub →</a></div>
@@ -173,7 +175,8 @@
 
   <!-- HOW TO USE -->
   <section class="card">
-    <h2>How to use this playground</h2>
+    <details>
+    <summary>How to use this playground</summary>
     <p class="desc">Every control on this page is wired to a working blockchain engine. Here is what each one does.</p>
     <ol class="steps">
       <li><b>Mempool &amp; new transactions.</b> Use the transaction form (or the <i>Random transaction</i> button) to queue transfers between wallets. Pending transactions wait in the mempool until a block is mined.</li>
@@ -195,6 +198,7 @@
         <li>Click <b>Trigger fork</b> and watch the chain reorganize onto the heavier branch.</li>
       </ol>
     </div>
+    </details>
   </section>
 
   <!-- CONTROLS -->

@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="Ironchain logo" width="96">
+
 # Ironchain
 
 A from-scratch proof-of-work blockchain written in pure Rust with zero external dependencies. Standard library only, edition 2021. The only cryptographic primitive is SHA-256, implemented in this repository, and digital signatures are hash-based, so Ironchain is a post-quantum, hash-only chain.
