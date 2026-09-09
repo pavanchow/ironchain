@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pavanchow.github.io/ironchain/sitemap.xml

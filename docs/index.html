@@ -3,26 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ironchain: a post-quantum, hash-only proof-of-work blockchain in Rust</title>
-<meta name="description" content="Ironchain by Pavan Nallamothu: a from-scratch proof-of-work blockchain in pure Rust with zero dependencies. Its only primitive is SHA-256, and signatures are hash-based Lamport keys under a Merkle tree, so it is a post-quantum, hash-only chain. Mine real blocks in your browser, tamper with any field and watch the break cascade, then fork the chain and watch a reorg.">
-<meta name="author" content="Pavan Nallamothu (pavanchow)">
-<meta name="keywords" content="proof of work blockchain, Rust blockchain, post-quantum signatures, hash-based signatures, Lamport signatures, XMSS, Merkle tree, SHA-256, from scratch blockchain, zero dependency, SPV light client, fork choice, reorg, difficulty retarget, mempool, Pavan Nallamothu, pavanchow">
-<link rel="canonical" href="https://pavanchow.github.io/ironchain/">
-<link rel="icon" type="image/svg+xml" href="logo.svg">
-<link rel="author" href="https://github.com/pavanchow">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Ironchain: a post-quantum, hash-only proof-of-work blockchain in Rust">
-<meta property="og:description" content="A from-scratch PoW blockchain in pure Rust: SHA-256 from scratch, hash-based XMSS-style signatures, Merkle proofs, mining, fork choice, and reorg. Tamper with it live and watch it break. By Pavan Nallamothu.">
-<meta property="og:url" content="https://pavanchow.github.io/ironchain/">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Ironchain: a post-quantum, hash-only proof-of-work blockchain in Rust">
-<meta name="twitter:description" content="Mine blocks, tamper any field and watch the break cascade downstream, then fork the chain and watch a reorg rewrite balances.">
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ironchain","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","softwareVersion":"0.1.0","description":"Ironchain is a from-scratch proof-of-work blockchain in pure Rust with zero external dependencies. The only cryptographic primitive is SHA-256, implemented in the repository, and signatures are hash-based Lamport one-time keys arranged under a Merkle tree (an XMSS-style scheme), making it a post-quantum, hash-only chain. It includes a transaction Merkle tree with inclusion proofs, proof-of-work with difficulty retargeting, an account-model state, a mempool, a miner, and fork choice by most cumulative work with correct reorganization.","url":"https://pavanchow.github.io/ironchain/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/ironchain","license":"https://opensource.org/licenses/MIT"}
-</script>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]}
-</script>
+<title>Ironchain: proof-of-work blockchain in Rust | Pavan Nallamothu</title>
+  <meta name="description" content="Ironchain is a from-scratch proof-of-work blockchain in pure Rust with zero dependencies, built on SHA-256 with hash-based signatures. By Pavan Nallamothu.">
+  <meta name="keywords" content="proof of work blockchain, Rust blockchain, blockchain from scratch, SHA-256 mining, hash-based signatures, Lamport signatures, Merkle tree, post-quantum blockchain, zero dependency Rust, fork choice, reorg, difficulty retarget, mempool, ironchain rust, Pavan Nallamothu, pavanchow">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="author" content="Pavan Nallamothu">
+  <link rel="author" href="https://github.com/pavanchow">
+  <link rel="canonical" href="https://pavanchow.github.io/ironchain/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Pavan Nallamothu">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Ironchain: proof-of-work blockchain in Rust | Pavan Nallamothu">
+  <meta property="og:description" content="A from-scratch proof-of-work blockchain in pure Rust with zero dependencies. Its only primitive is SHA-256, with hash-based signatures under a Merkle tree. By Pavan Nallamothu.">
+  <meta property="og:url" content="https://pavanchow.github.io/ironchain/">
+  <meta property="og:image" content="https://pavanchow.github.io/ironchain/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Ironchain by Pavan Nallamothu">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Ironchain: proof-of-work blockchain in Rust | Pavan Nallamothu">
+  <meta name="twitter:description" content="A from-scratch proof-of-work blockchain in pure Rust with zero dependencies, built on SHA-256 with hash-based signatures. By Pavan Nallamothu.">
+  <meta name="twitter:image" content="https://pavanchow.github.io/ironchain/og-image.png">
+  <meta name="twitter:creator" content="@pavanchow">
+  <meta name="twitter:site" content="@pavanchow">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","@id":"https://pavanchow.github.io/ironchain/#software","name":"Ironchain","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","description":"Ironchain is a from-scratch proof-of-work blockchain in pure Rust with zero dependencies. Its only primitive is SHA-256, and signatures are hash-based Lamport keys under a Merkle tree.","url":"https://pavanchow.github.io/ironchain/","image":"https://pavanchow.github.io/ironchain/og-image.png","softwareVersion":"0.1.0","programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/ironchain","license":"https://opensource.org/licenses/MIT","datePublished":"2026-08-21","author":{"@id":"https://github.com/pavanchow#person"},"publisher":{"@id":"https://github.com/pavanchow#person"},"keywords":"proof of work blockchain, Rust blockchain, SHA-256, hash-based signatures, Merkle tree, blockchain from scratch","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Proof-of-work mining","SHA-256 as the only cryptographic primitive","Hash-based Lamport signatures under a Merkle tree","Fork choice and chain reorganization","Difficulty retarget and mempool"]},{"@type":"Person","@id":"https://github.com/pavanchow#person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","jobTitle":"Software Engineer and Security Researcher","knowsAbout":["Rust","blockchain","proof of work","SHA-256","hash-based signatures","cryptography"],"sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]},{"@type":"WebSite","@id":"https://pavanchow.github.io/ironchain/#website","name":"Ironchain by Pavan Nallamothu","url":"https://pavanchow.github.io/ironchain/","author":{"@id":"https://github.com/pavanchow#person"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Pavan Nallamothu","item":"https://github.com/pavanchow"},{"@type":"ListItem","position":2,"name":"Ironchain","item":"https://pavanchow.github.io/ironchain/"}]},{"@type":"WebPage","url":"https://pavanchow.github.io/ironchain/","name":"Ironchain: proof-of-work blockchain in Rust | Pavan Nallamothu","isPartOf":{"@id":"https://pavanchow.github.io/ironchain/#website"},"about":{"@id":"https://pavanchow.github.io/ironchain/#software"},"author":{"@id":"https://github.com/pavanchow#person"},"inLanguage":"en"}]}
+  </script>
 <style>
   :root{
     --accent:#0071e3;--accent2:#37a0ff;--accent-soft:#e8f1fe;
@@ -413,6 +419,18 @@ IRONCHAIN_SOAK=1 cargo test --release --test soak</pre>
 <footer><div class="wrap">
   <p>Ironchain is MIT licensed. Source, the SHA-256 implementation, and the correctness gate are on <a href="https://github.com/pavanchow/ironchain">GitHub</a>.</p>
   <p>By <span class="name">Pavan Nallamothu</span>.</p>
+  <div class="more" style="max-width:820px;margin:40px auto 0;text-align:left">
+    <p style="text-align:center;font-weight:600;color:var(--ink);margin-bottom:16px">More open-source tools by Pavan Nallamothu</p>
+    <p style="font-size:15px;line-height:1.9">
+      <a href="https://pavanchow.github.io/veilproof/">Veilproof, a zero-knowledge proof system in Rust from scratch</a><br>
+      <a href="https://pavanchow.github.io/cipherlock/">Cipherlock, ChaCha20-Poly1305 authenticated encryption in Rust</a><br>
+      <a href="https://pavanchow.github.io/gatekeeper/">Gatekeeper, an auth server in Rust with HMAC-SHA256 signed tokens</a><br>
+      <a href="https://pavanchow.github.io/unweave/">Unweave, an EVM bytecode disassembler in Rust</a><br>
+      <a href="https://pavanchow.github.io/timelace/">Timelace, a content-addressed version control system in Rust</a><br>
+      <a href="https://pavanchow.github.io/quorum/">Quorum, a deterministic Raft consensus simulator in Rust</a><br>
+      <a href="https://github.com/pavanchow">All projects on github.com/pavanchow</a>
+    </p>
+  </div>
 </div></footer>
 
 <script>
