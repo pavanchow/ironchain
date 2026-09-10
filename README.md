@@ -6,6 +6,8 @@ Ironchain is a from-scratch proof-of-work blockchain written in pure Rust with z
 
 **[Live demo](https://pavanchow.github.io/ironchain/)** · MIT licensed · pure Rust, zero dependencies
 
+Built from scratch by [Pavan Nallamothu](https://pavanchow.github.io/) ([LinkedIn](https://www.linkedin.com/in/pavanchow/), [GitHub](https://github.com/pavanchow)).
+
 ## What it is
 
 Ironchain is a complete small blockchain you can read end to end. It has SHA-256 from scratch, hash-based one-time signatures inside a Merkle key tree (an XMSS-style scheme), a transaction Merkle tree with inclusion proofs, proof-of-work blocks with a difficulty target, an account-model world state, a mempool, a miner, difficulty retargeting, and fork choice by most cumulative work with correct chain reorganization.
